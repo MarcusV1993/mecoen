@@ -1,6 +1,12 @@
+/*
+ *  To-do: Convert voltage from read_voltage(void *arg) to real world voltage
+ *  To-do: Convert voltage from read_current_voltage(void *arg) to real world current
+ */
+
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <math.h> // Marcus include
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/queue.h"
@@ -82,6 +88,29 @@ static SemaphoreHandle_t rx_sem;
 #define NO_OF_SAMPLES   1          //Multisampling
 
 #define V_SAMPLES		1000		// Number of voltage samples
+#define SAMPLING_PERIOD_MS 1
+static const float signal_to_rms = 1 / (V_SAMPLES * (1000 * SAMPLING_PERIOD_MS));
+
+
+// Circuit parameters
+#define VCC             5
+
+
+// Current Sensor Parameters
+#define SCT013_NUMBER_TURNS 2000
+#define SCT013_BURDEN_RESISTOR 16.3
+#define SCT013_R1              218e3
+#define SCT013_R2              80.4e3
+static const float sct013_dc_bias = VCC * SCT013_R2 / (SCT013_R1 + SCT013_R2);
+static const float sct013_calibration = SCT013_NUMBER_TURNS / sct013_dc_bias;
+
+
+//
+typedef struct Adc_readings
+{
+	float samples[V_SAMPLES];
+	float rms_previous, rms;
+} Adc_readings;
 
 static esp_adc_cal_characteristics_t *adc_chars;
 static const adc_channel_t channel = ADC_CHANNEL_6;     //GPIO34 if ADC1, GPIO14 if ADC2 -> o Potenciomentro vai no GPIO34
@@ -525,16 +554,53 @@ set_break_effort(void *desired_break_effort)
 static void
 read_voltage(void *arg)
 {
-	float *voltage = (float *) arg;
+	Adc_readings *voltage = (Adc_readings *) arg;
+
+	voltage->rms = 0.0;
+	voltage->rms_previous = 0.0;
 
 	int sample = 0;
 
 	while (1)
 	{
-	    voltage[sample] = get_voltage();
+	    voltage->samples[sample] = get_voltage();
+	    voltage->rms += voltage->samples[sample] * voltage->samples[sample];
 		sample++;
 		if (sample >= V_SAMPLES)
+		{
 			sample = 0;
+			voltage->rms_previous = sqrtf(voltage->rms * signal_to_rms);
+			voltage->rms = 0.0;
+		}
+
+//		ojSleepMsec(1.0);
+		vTaskDelay(1 / portTICK_RATE_MS);
+	}
+}
+
+
+static void
+read_current_voltage(void *arg)
+{
+	Adc_readings *current = (Adc_readings *) arg;
+	current->rms = 0.0;
+	current->rms_previous = 0.0;
+
+	int sample = 0;
+
+	while (1)
+	{
+		current->samples[sample] = get_voltage();
+//		Test:
+//		current->samples[sample] = sct013_calibration * (get_voltage() - sct013_dc_bias)
+		current->rms += current->samples[sample];
+		sample++;
+		if (sample >= V_SAMPLES)
+		{
+			sample = 0;
+			current->rms_previous = sqrt(current->rms);
+			current->rms = 0.0;
+		}
 //		ojSleepMsec(1.0);
 		vTaskDelay(1 / portTICK_RATE_MS);
 	}
@@ -615,8 +681,11 @@ void app_main()
     float break_effort = 0.0;
 //    xTaskCreatePinnedToCore(set_break_effort, "set_break_effort", 2048, &break_effort, 5, NULL, 1);
 
-    float voltage[V_SAMPLES];
-    xTaskCreatePinnedToCore(read_voltage, "read_voltage", 2048, voltage, 5, NULL, 1);
+    Adc_readings voltage;
+    xTaskCreatePinnedToCore(read_voltage, "read_voltage", 2048, &voltage, 5, NULL, 1);
+
+    Adc_readings current;
+    xTaskCreatePinnedToCore(read_current_voltage, "read_current_voltage", 2048, &current, 5, NULL, 1);
 
     int extra_steering_angle_sensor = 0;
 #ifdef	USE_EXTRA_STEERING_ANGLE_SENSOR
@@ -646,8 +715,9 @@ void app_main()
 
 		for (int i = 0; i < V_SAMPLES / 10; i++)
 		{
-			printf("%.2f\n", voltage[i]);
+			printf("V: %.2f\n", voltage.samples[i]);
 			fflush(stdout);
+			printf("A: %.2f\n", current.samples[i]);
 			vTaskDelay(10 / portTICK_RATE_MS);
 		}
 
