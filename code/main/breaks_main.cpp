@@ -30,10 +30,11 @@
 
 
 #define DEFAULT_VREF    1100        //Use adc2_vref_to_gpio() to obtain a better estimate
-#define NO_OF_SAMPLES   1          //Multisampling
+#define NO_OF_SAMPLES   4          //Multisampling
 
-#define V_SAMPLES		1000		// Number of voltage samples
+#define V_SAMPLES		2500		// Number of voltage samples
 #define SAMPLING_PERIOD_MS 1
+static const uint32_t SAMPLING_PERIOD_US = 1e3/V_SAMPLES; // Real sampling frequency slightly lower than 1e6/SAMPLING_PERIOD_US
 static const float signal_to_rms = 1 / (V_SAMPLES * (1000 * SAMPLING_PERIOD_MS));
 
 
@@ -42,10 +43,11 @@ static const float signal_to_rms = 1 / (V_SAMPLES * (1000 * SAMPLING_PERIOD_MS))
 // end circuit parameters
 
 // current sensor parameters
-#define SCT013_NUMBER_TURNS 2000
-#define SCT013_BURDEN_RESISTOR 16.3
-#define SCT013_R1              218e3
-#define SCT013_R2              80.4e3
+#define sct013_VCC 3.3
+#define SCT013_NUMBER_TURNS    2000
+#define SCT013_BURDEN_RESISTOR  470
+#define SCT013_R1              22e3
+#define SCT013_R2              10e3
 static const float sct013_dc_bias = VCC * SCT013_R2 / (SCT013_R1 + SCT013_R2);
 static const float sct013_calibration = SCT013_NUMBER_TURNS / sct013_dc_bias;
 // end current sensor parameters
@@ -56,6 +58,11 @@ typedef struct Adc_readings
 	float samples[V_SAMPLES];
 	float rms_previous, rms;
 } Adc_readings;
+
+typedef struct Circuit_phase
+{
+	Adc_readings voltage, current;
+} Circuit_phase;
 
 static esp_adc_cal_characteristics_t *adc_chars;
 static const adc_channel_t channel = ADC_CHANNEL_6;     //GPIO34 if ADC1, GPIO14 if ADC2 -> o Potenciomentro vai no GPIO34
@@ -190,6 +197,7 @@ init_adc()
     {
         adc1_config_width(ADC_WIDTH_BIT_12);
         adc1_config_channel_atten((adc1_channel_t) channel, atten);
+        adc1_config_channel_atten((adc1_channel_t) channel7, atten); // Second ADC channel
     }
     else
         adc2_config_channel_atten((adc2_channel_t) channel, atten);
@@ -257,8 +265,46 @@ read_current(void *arg)
 	}
 }
 
-Adc_readings voltage;
-float vcopy[V_SAMPLES];
+void
+read_phase(void *arg)
+{
+	Circuit_phase *phase = (Circuit_phase *) arg;
+	phase->voltage.rms = phase->voltage.rms_previous = 0.0;
+
+	int sample = 0;
+
+	while(1)
+	{
+		phase->voltage.samples[sample] = get_voltage();
+		phase->current.samples[sample] = get_adc1_value(channel7);
+
+//		Convert adc readings to real world value
+
+		phase->voltage.rms += phase->voltage.samples[sample]*phase->voltage.samples[sample];
+		phase->current.rms += phase->current.samples[sample]*phase->current.samples[sample];
+
+		sample++;
+		if(sample >= V_SAMPLES)
+		{
+			sample = 0;
+//	Imprecision for not calculating rms considering integer multiples of the signal period
+			phase->voltage.rms_previous = sqrt(phase->voltage.rms);
+			phase->current.rms_previous = sqrt(phase->current.rms);
+
+			phase->voltage.rms = 0.0;
+			phase->current.rms = 0.0;
+		}
+
+		delayMicroseconds(SAMPLING_PERIOD_US);
+	}
+}
+
+//Adc_readings voltage;
+//Adc_readings current;
+Circuit_phase phase_a;
+//float vcopy[V_SAMPLES];
+static const int REASON = 4;
+float phase_copy[V_SAMPLES/REASON][2];
 
 #ifdef __cplusplus
 extern "C"
@@ -268,10 +314,12 @@ void app_main()
 	init_adc();
 
 //    printf("\nCreated Adc_readings voltage\n");
-    xTaskCreatePinnedToCore(read_voltage, "read_voltage", 2048, &voltage, 5, NULL, 1);
-    printf("\nread_voltage task initialized!\n");
+//    xTaskCreatePinnedToCore(read_voltage, "read_voltage", 2048, &voltage, 5, NULL, 1);
+//    printf("\nread_voltage task initialized!\n");
 
-//    Adc_readings current;
+    xTaskCreatePinnedToCore(read_phase, "read_phase", 2048, &phase_a, 5, NULL, 1);
+    printf("\nread_phase task initialized!\n");
+
 //    xTaskCreatePinnedToCore(read_current, "read_current", 2048, &current, 5, NULL, 1);
 //    printf("\nread_current task initialized!\n");
 
@@ -285,15 +333,18 @@ void app_main()
 
 		delayMicroseconds(1000000);
 
-		for (int i = 0; i < V_SAMPLES; i++)
+		for (int i = 0; i < V_SAMPLES/REASON; i++)
 		{
-			vcopy[i] = voltage.samples[i];
+//			vcopy[i] = voltage.samples[i];
+			phase_copy[i][0] = phase_a.voltage.samples[i];
+			phase_copy[i][1] = phase_a.current.samples[i];
 		}
 
-		for (int i = 0; i < V_SAMPLES; i++)
+		for (int i = 0; i < V_SAMPLES/REASON; i++)
 		{
-			printf("%.2f\n", vcopy[i]);
+//			printf("%.2f\n", vcopy[i]);
 //			printf("V: %.2f\n", voltage.samples[i]);
+			printf("%04.2f %04.2f\n", phase_copy[i][0], phase_copy[i][1]);
 			fflush(stdout);
 //			printf("A: %.2f\n", current.samples[i]);
 			vTaskDelay(10 / portTICK_RATE_MS);
