@@ -26,8 +26,6 @@
 #include "driver/adc.h"
 #include "esp_adc_cal.h"
 
-#include "ns_as5048b.h"
-
 
 #define DEFAULT_VREF    1100        //Use adc2_vref_to_gpio() to obtain a better estimate
 #define NO_OF_SAMPLES   4          //Multisampling
@@ -37,13 +35,15 @@
 static const uint32_t SAMPLING_PERIOD_US = 1e3/V_SAMPLES; // Real sampling frequency slightly lower than 1e6/SAMPLING_PERIOD_US
 static const float signal_to_rms = 1 / (V_SAMPLES * (1000 * SAMPLING_PERIOD_MS));
 
+#define V0 1110.8 //1110.828
+#define I0 1087.5 //1087.484
 
 // circuit parameters
 #define VCC             5
 // end circuit parameters
 
 // current sensor parameters
-#define sct013_VCC 3.3
+#define sct013_VCC 				3.3
 #define SCT013_NUMBER_TURNS    2000
 #define SCT013_BURDEN_RESISTOR  470
 #define SCT013_R1              22e3
@@ -53,15 +53,15 @@ static const float sct013_calibration = SCT013_NUMBER_TURNS / sct013_dc_bias;
 // end current sensor parameters
 
 //
-typedef struct Adc_readings
+typedef struct Signal
 {
 	float samples[V_SAMPLES];
 	float rms_previous, rms;
-} Adc_readings;
+} Signal;
 
 typedef struct Circuit_phase
 {
-	Adc_readings voltage, current;
+	Signal voltage, current, power;
 } Circuit_phase;
 
 static esp_adc_cal_characteristics_t *adc_chars;
@@ -213,7 +213,7 @@ init_adc()
 static void
 read_voltage(void *arg)
 {
-	Adc_readings *voltage = (Adc_readings *) arg;
+	Signal *voltage = (Signal *) arg;
 
 	voltage->rms = 0.0;
 	voltage->rms_previous = 0.0;
@@ -241,7 +241,7 @@ read_voltage(void *arg)
 void
 read_current(void *arg)
 {
-	Adc_readings *current = (Adc_readings *) arg;
+	Signal *current = (Signal *) arg;
 	current->rms = 0.0;
 	current->rms_previous = 0.0;
 
@@ -275,8 +275,8 @@ read_phase(void *arg)
 
 	while(1)
 	{
-		phase->voltage.samples[sample] = get_voltage();
-		phase->current.samples[sample] = get_adc1_value(channel7);
+		phase->voltage.samples[sample] = get_voltage() - V0;
+		phase->current.samples[sample] = get_adc1_value(channel7) - I0;
 
 //		Convert adc readings to real world value
 
@@ -299,8 +299,8 @@ read_phase(void *arg)
 	}
 }
 
-//Adc_readings voltage;
-//Adc_readings current;
+//Signal voltage;
+//Signal current;
 Circuit_phase phase_a;
 //float vcopy[V_SAMPLES];
 static const int REASON = 4;
@@ -313,7 +313,7 @@ void app_main()
 {
 	init_adc();
 
-//    printf("\nCreated Adc_readings voltage\n");
+//    printf("\nCreated Signal voltage\n");
 //    xTaskCreatePinnedToCore(read_voltage, "read_voltage", 2048, &voltage, 5, NULL, 1);
 //    printf("\nread_voltage task initialized!\n");
 
