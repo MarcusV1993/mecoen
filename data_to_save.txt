@@ -1,0 +1,19 @@
+Período: 5 min
+Hora;Potência Ativa;Potência Reativa;Tipo Carga (Indutivo ou Capacitivo | Usar Sinal na Potência Reativa?);Máxima Potência Ativa
+Hora Cheia
+Hora;Potência Ativa;Potência Reativa;Tipo Carga (Indutivo ou Capacitivo | Usar Sinal na Potência Reativa?);Máxima Potência Ativa;Fator de Potência horário (FPh);Demanda Máxima Corrigida Registrada (DMCR); Faturamento de Energia Reativa (UFER)
+
+
+
+
+FPh = IF(I5="IND";COS(ATAN((SUM(E2:E5))/SUM(C2:C5)));COS(ATAN((SUM(G2:G5))/SUM(C2:C5))))
+DMCR = (0,92/N5)*AVERAGE(C2:C5)
+UFER = IF(((0,92/K5)-1)*AVERAGE(C2:C5)<0;0;((0,92/K5)-1)*AVERAGE(C2:C5))
+
+V = A*cos(w*t)
+I = B*cos(w*t + phi)
+
+sen(a + b) = sen(a)*cos(b) + sen(b)*cos(a)
+sen(a - b) = sen(a)*cos(b) - sen(b)*cos(a)
+cos(a + b) = 
+
