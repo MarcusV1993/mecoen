@@ -18,6 +18,8 @@
 
 #include "definitions.h"
 
+#include "energy_meter_adc.h"
+
 #define EXAMPLE_ESP_WIFI_SSID      "mecoen"
 #define EXAMPLE_ESP_WIFI_PASS      "12345678"
 #define EXAMPLE_MAX_STA_CONN       2
@@ -34,17 +36,6 @@ static char http_index_html_server[] = "\
 <center>#                                                                                                       </center>\
 </body>\
 </html>";
-/*
-static char http_index_html_server[] = "\
-<html>\
-<body>\
-<center><h1>Projeto de Graduação em Engenharia Elétrica com Ênfase em Eletrônica e Sistemas</h1></center>\
-<center><h1>Medidor de Consumo de Energia Elétrica Doméstico de Tempo Real com Interface Via Aplicativo Web</h1></center>\
-<center>#                                                                                                       </center>\
-<center>#                                                                                                       </center>\
-</body>\
-</html>";
-*/
 
 char message[100];
 

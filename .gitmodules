@@ -1,0 +1,6 @@
+[submodule "code/code/components/esp-dsp"]
+	path = code/code/components/esp-dsp
+	url = https://github.com/espressif/esp-dsp
+[submodule "code/components/esp-dsp"]
+	path = code/components/esp-dsp
+	url = https://github.com/espressif/esp-dsp
