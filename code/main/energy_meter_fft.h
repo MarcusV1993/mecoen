@@ -9,13 +9,10 @@
 #define MAIN_ENERGY_METER_FFT_H_
 
 
-#include "esp_dsp.h" // https://github.com/espressif/esp-dsp
+#include "esp_err.h"
 
-#include "definitions.h"
-
-//https://github.com/espressif/esp-dsp/blob/master/examples/fft/main/dsps_fft_main.c
-// Window coefficients
-__attribute__((aligned(16)))
-extern float wind[SAMPLING_FREQUENCY];
+// functions
+esp_err_t init_fft();
+// end functions
 
 #endif /* MAIN_ENERGY_METER_FFT_H_ */

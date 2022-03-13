@@ -8,9 +8,6 @@
 #ifndef MAIN_ENERGY_METER_I2C_H_
 #define MAIN_ENERGY_METER_I2C_H_
 
-#include "driver/i2c.h"
-
-//#include "ds3231.h"
 
 #define I2C_MASTER_SCL_IO           22      /*!< GPIO number used for I2C master clock */
 #define I2C_MASTER_SDA_IO           21      /*!< GPIO number used for I2C master data  */
@@ -20,7 +17,9 @@
 #define I2C_MASTER_RX_BUF_DISABLE   0                          /*!< I2C master doesn't need buffer */
 #define I2C_MASTER_TIMEOUT_MS       1000
 
+
 #define DS3231                 0x68        /*!< Slave address of the DS3231 RTC */
 #define AT24C32                0x57        /*!< Slave address of the AT24C32 EEPROM module embedded in the DS3231 module */
+
 
 #endif /* MAIN_ENERGY_METER_I2C_H_ */

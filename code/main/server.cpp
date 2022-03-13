@@ -17,8 +17,8 @@
 #include "server.h"
 
 #include "definitions.h"
-
 #include "energy_meter_adc.h"
+#include  "energy_meter_storage.h"
 
 #define EXAMPLE_ESP_WIFI_SSID      "mecoen"
 #define EXAMPLE_ESP_WIFI_PASS      "12345678"
@@ -143,6 +143,8 @@ static void http_server(void *pvkeys)
 
 void http_server_setup()
 {
+	ESP_ERROR_CHECK(init_nvs()); printf("\ninit_nvs\n");
+
     wifi_init_softap();
     xTaskCreate(&http_server, "http_server", 2048, NULL, 5, NULL);
 }

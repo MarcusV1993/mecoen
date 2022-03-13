@@ -7,23 +7,43 @@
 
 #include "energy_meter_adc.h"
 
+#include <math.h>
+#include "esp_adc_cal.h"
+#include "driver/adc.h"
+#include "driver/gpio.h"
+
+#include "definitions.h"
+#include "energy_meter_time.h"
+
+
+// ADC period
 static const uint32_t SAMPLING_PERIOD_US = 1e6 / SAMPLING_FREQUENCY; // Real sampling frequency slightly lower than 1e6/SAMPLING_PERIOD_US
 static const float signal_to_rms = 1 / (SAMPLING_FREQUENCY * SAMPLING_PERIOD_US);
+// end ADC period
 
+
+// ADC ports and configuration
 static esp_adc_cal_characteristics_t *adc_chars;
 static const adc_channel_t channel_v = ADC_CHANNEL_6;     // GPIO34
 static const adc_channel_t channel_i = ADC_CHANNEL_7;	  // GPIO35
 static const adc_atten_t atten = ADC_ATTEN_DB_11; // max = 3.9V -> https://docs.espressif.com/projects/esp-idf/en/latest/api-reference/peripherals/adc.html
 static const adc_unit_t unit = ADC_UNIT_1;
+// end ADC ports and configuration
+
 
 // voltage sensor
 static const float zmpt101b_dc_bias = 856/*(ZMPT101B_VCC * 1000 / 2) * ZMPT101B_R2 / (ZMPT101B_R1 + ZMPT101B_R2)*/; // Calculated: 1.107 V Measured: 1217 mV
 static const float zmpt101b_calibration = (220 * sqrt(2)) / (ZMPT101B_VMAX * 1000 / 2);
+// end voltage sensor
+
 
 // current sensor
 static const float sct013_dc_bias = 1083;/*SCT013_VCC * 1000 * SCT013_R2 / (SCT013_R1 + SCT013_R2);*/ // Calculated: 1,032 V Measured: 1130 mV
 static const float sct013_calibration = (SCT013_NUMBER_TURNS / SCT013_BURDEN_RESISTOR);
+// end current sensor
 
+
+// functions
 static void check_efuse(void)
 {
     //Check TP is burned into eFuse
@@ -135,4 +155,4 @@ read_phase(void *arg)
 		delayMicroseconds(SAMPLING_PERIOD_US);
 	}
 }
-
+// end functions

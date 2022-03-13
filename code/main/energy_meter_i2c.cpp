@@ -7,6 +7,10 @@
 
 #include "energy_meter_i2c.h"
 
+#include "driver/i2c.h"
+
+//#include "ds3231.h"
+
 //static esp_err_t i2c_master_init(void)
 //{
 //    int i2c_master_port = I2C_MASTER_NUM;
