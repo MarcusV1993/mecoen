@@ -6,7 +6,8 @@
 #include "freertos/event_groups.h"
 #include "esp_system.h"
 #include "esp_wifi.h"
-#include "esp_event_loop.h"
+#include "esp_event_loop.h" // deprecated
+//#include "esp_event.h"
 #include "esp_log.h"
 #include "nvs_flash.h"
 #include "driver/gpio.h"
@@ -107,11 +108,11 @@ static void http_server_netconn_serve(struct netconn *conn)
 //        static int count = 0;
         sprintf(message, "Vrms = %07.2f", phase_a.voltage.rms_previous); //sprintf(message, "Vrms = %d", count++);
         strcpy(output + 1, message);
-        output[strlen(message) + 1] = '%';
+        output[strlen(message) + 1] = ';';
         output = strstr(output + 1, "#");
         sprintf(message, "Vrms = %07.2f", phase_a.current.rms_previous);
 		strcpy(output + 1, message);
-		output[strlen(message) + 1] = '%';
+		output[strlen(message) + 1] = '.';
 
         netconn_write(conn, http_html_hdr, sizeof(http_html_hdr)-1, NETCONN_NOCOPY);
         netconn_write(conn, http_index_html_server, sizeof(http_index_html_server)-1, NETCONN_NOCOPY);

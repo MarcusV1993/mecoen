@@ -8,13 +8,16 @@
 #include "energy_meter_adc.h"
 
 #include <math.h>
+#include <stdint.h>
 #include "esp_adc_cal.h"
 #include "driver/adc.h"
 #include "driver/gpio.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "freertos/semphr.h"
 
 #include "definitions.h"
 #include "energy_meter_time.h"
-
 
 // ADC period
 static const uint32_t SAMPLING_PERIOD_US = 1e6 / SAMPLING_FREQUENCY; // Real sampling frequency slightly lower than 1e6/SAMPLING_PERIOD_US
@@ -32,16 +35,15 @@ static const adc_unit_t unit = ADC_UNIT_1;
 
 
 // voltage sensor
-static const float zmpt101b_dc_bias = 856/*(ZMPT101B_VCC * 1000 / 2) * ZMPT101B_R2 / (ZMPT101B_R1 + ZMPT101B_R2)*/; // Calculated: 1.107 V Measured: 1217 mV
+static const float zmpt101b_dc_bias = 1139/*(ZMPT101B_VCC * 1000 / 2) * ZMPT101B_R2 / (ZMPT101B_R1 + ZMPT101B_R2)*/; // Calculated: 1.107 V Measured: 1217 mV
 static const float zmpt101b_calibration = (220 * sqrt(2)) / (ZMPT101B_VMAX * 1000 / 2);
 // end voltage sensor
 
 
 // current sensor
-static const float sct013_dc_bias = 1083;/*SCT013_VCC * 1000 * SCT013_R2 / (SCT013_R1 + SCT013_R2);*/ // Calculated: 1,032 V Measured: 1130 mV
+static const float sct013_dc_bias = 1025;/*SCT013_VCC * 1000 * SCT013_R2 / (SCT013_R1 + SCT013_R2);*/ // Calculated: 1,032 V Measured: 1130 mV
 static const float sct013_calibration = (SCT013_NUMBER_TURNS / SCT013_BURDEN_RESISTOR);
 // end current sensor
-
 
 // functions
 static void check_efuse(void)
@@ -118,30 +120,52 @@ read_phase(void *arg)
 	Circuit_phase *phase = (Circuit_phase *) arg;
 	phase->voltage.rms = phase->voltage.rms_previous = 0.0;
 
-	int sample = 0;
+//	uint32_t ret = 0;
+	int sample_num = 0;
+
+//	xTaskNotifyStateClearIndexed( NULL, indexToWaitOn );
+//	configASSERT(task_fft != NULL);
+//	xSemaphoreTake(semaphore_adc_fft, portMAX_DELAY);
 
 	while(1)
 	{
 //		Reading ADC
-		phase->voltage.samples[sample] = get_adc1_value(channel_v);
+		phase->voltage.samples[sample_num] = get_adc1_value(channel_v);
 		delayMicroseconds(1);
-		phase->current.samples[sample] = get_adc1_value(channel_i);
+		phase->current.samples[sample_num] = get_adc1_value(channel_i);
+
+//		Remove DC bias, mV -> V
+		phase->voltage.samples[sample_num] = (phase->voltage.samples[sample_num] - zmpt101b_dc_bias);
+		phase->current.samples[sample_num] = (phase->current.samples[sample_num] - sct013_dc_bias);
+
+//		Convert mV -> V
+//		phase->voltage.samples[sample_num] /= 1000;
+//		phase->current.samples[sample_num] /= 1000;
 
 //		Convert ADC readings to real world value
 //		phase->voltage.samples[sample] = zmpt101b_calibration * (phase->voltage.samples[sample] - zmpt101b_dc_bias);
 //		phase->current.samples[sample] =   sct013_calibration * (phase->current.samples[sample] -   sct013_dc_bias);
 
 //		Instant power
-		phase->power.samples[sample] = phase->voltage.samples[sample] * phase->current.samples[sample];
+		phase->power.samples[sample_num] = phase->voltage.samples[sample_num] * phase->current.samples[sample_num];
 
 //		RMS
-		phase->voltage.rms += phase->voltage.samples[sample]*phase->voltage.samples[sample];
-		phase->current.rms += phase->current.samples[sample]*phase->current.samples[sample];
+		phase->voltage.rms += phase->voltage.samples[sample_num]*phase->voltage.samples[sample_num];
+		phase->current.rms += phase->current.samples[sample_num]*phase->current.samples[sample_num];
 
-		sample++;
-		if(sample >= SAMPLING_FREQUENCY)
+		sample_num++;
+		if(sample_num >= SAMPLING_FREQUENCY)
 		{
-			sample = 0;
+			sample_num = 0;
+
+			xSemaphoreGive(semaphore_fft);
+//			xTaskNotifyGiveIndexed(task_fft, indexToWaitOn); // Notify fft task that array has been filled
+//printf("\nADC give task\n");
+//delayMicroseconds(100);
+			xSemaphoreTake(semaphore_adc, portMAX_DELAY);
+//			ulTaskNotifyTakeIndexed(indexToWaitOn, pdFALSE, portMAX_DELAY/*pdMS_TO_TICKS(5000)*/); // Wait until fft task finished copying array
+//printf("\nADC take task\n");
+
 //	Imprecision for not calculating RMS considering integer multiples of the signal period
 			phase->voltage.rms_previous = sqrt(phase->voltage.rms / SAMPLING_FREQUENCY);
 			phase->current.rms_previous = sqrt(phase->current.rms / SAMPLING_FREQUENCY);

@@ -16,11 +16,11 @@
 
 #include "esp_err.h"
 #include "freertos/FreeRTOS.h"
-#include "freertos/queue.h"
-#include "freertos/semphr.h"
 #include "freertos/task.h"
+#include "freertos/semphr.h"
 
 #include "definitions.h"
+#include "energy_meter_commons.h"
 #include "server.h"
 #include "energy_meter_adc.h"
 #include "energy_meter_time.h"
@@ -31,14 +31,24 @@ Circuit_phase phase_a;
 
 
 static const int REASON = 4;
-float phase_copy[SAMPLING_FREQUENCY/REASON][2];
+float phase_copy[SAMPLING_FREQUENCY/REASON][3];
 
+TaskHandle_t task_adc = NULL, task_fft = NULL;
+SemaphoreHandle_t semaphore_adc_fft = xSemaphoreCreateBinary();
+SemaphoreHandle_t semaphore_adc = xSemaphoreCreateMutex();
+SemaphoreHandle_t semaphore_fft = xSemaphoreCreateMutex();
 
 #ifdef __cplusplus
 extern "C"
 #endif
 void app_main()
 {
+//	xSemaphoreTake(semaphore_adc_fft, portMAX_DELAY);
+	xSemaphoreTake(semaphore_fft, portMAX_DELAY);
+	xSemaphoreTake(semaphore_adc, portMAX_DELAY);
+
+	init_phase(&phase_a);
+
 	init_adc();
 	printf("\ninit_adc!\n");
 
@@ -47,8 +57,12 @@ void app_main()
 
     http_server_setup();
 
-    xTaskCreatePinnedToCore(read_phase, "read_phase", 2048, &phase_a, 5, NULL, 1);
+    xTaskCreatePinnedToCore(read_phase, "read_phase", 2048, &phase_a, 5, &task_adc, 1);
     printf("\nread_phase task initialized!\n");
+//    vTaskDelay(pdMS_TO_TICKS(1));
+
+    xTaskCreatePinnedToCore(fft_continuous, "fft_continuous", 2048, &phase_a, 5, &task_fft, 1);
+	printf("\nread_fft task initialized!\n");
 
 	vTaskDelay(500 / portTICK_RATE_MS);
 
@@ -61,11 +75,12 @@ void app_main()
 		{
 			phase_copy[i][0] = phase_a.voltage.samples[i];
 			phase_copy[i][1] = phase_a.current.samples[i];
+			phase_copy[i][2] = phase_a.power.samples[i];
 		}
 
 		for (int i = 0; i < SAMPLING_FREQUENCY/REASON; i++)
 		{
-			printf("%07.2f %07.2f\n", phase_copy[i][0], phase_copy[i][1]);
+			printf("%07.2f %07.2f %07.2f\n", phase_copy[i][0], phase_copy[i][1], phase_copy[i][2]);
 			fflush(stdout);
 			vTaskDelay(10 / portTICK_RATE_MS);
 		}

@@ -13,6 +13,8 @@
 
 // functions
 esp_err_t init_fft();
+
+void fft_continuous(void *arg);
 // end functions
 
 #endif /* MAIN_ENERGY_METER_FFT_H_ */
