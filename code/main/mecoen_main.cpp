@@ -76,11 +76,10 @@ void app_main()
 	printf("\ninit_fft!\n");
 
 	// SNTP
-init_time();
+	init_time();
 char strftime_buf[64];
-time_t now;
 struct tm timeinfo;
-timeval now_timeval;
+timeval now;
 	// end Initializers
 
 	// Take semaphore to sync FFT and ADC tasks
@@ -107,8 +106,8 @@ timeval now_timeval;
     {
 		delayMicroseconds((int) 1e6); // 1 s
 
-		gettimeofday(&now_timeval, NULL);
-		localtime_r(&now_timeval.tv_sec, &timeinfo);
+		gettimeofday(&now, NULL);
+		localtime_r(&now.tv_sec, &timeinfo);
 		strftime(strftime_buf, sizeof(strftime_buf), "%c", &timeinfo);
 		printf("The current date/time is: %s\n", strftime_buf);
 //		for (int i = 0; i < SAMPLING_FREQUENCY/REASON; i++)

@@ -150,14 +150,14 @@ static void obtain_time(void)
         vTaskDelay(2000 / portTICK_PERIOD_MS);
     }
     time(&now);
-setenv("TZ", "EBST3", 1);
-tzset();
-    localtime_r(&now, &timeinfo);
+	setenv("TZ", "EBST3", 1);
+	tzset();
+	localtime_r(&now, &timeinfo);
     timeval now_timeval = {now, 0};
     settimeofday(&now_timeval, NULL);
-char strftime_buf[64];
-strftime(strftime_buf, sizeof(strftime_buf), "%c", &timeinfo);
-printf("The current date/time is: %s\n", strftime_buf);
+//char strftime_buf[64];
+//strftime(strftime_buf, sizeof(strftime_buf), "%c", &timeinfo);
+//printf("The current date/time is: %s\n", strftime_buf);
 }
 
 
@@ -171,12 +171,12 @@ init_time()
 	struct tm timeinfo;
 	time(&now);
 	localtime_r(&now, &timeinfo);
-setenv("TZ", "EBST3", 1);
-tzset();
-localtime_r(&now, &timeinfo);
-char strftime_buf[64];
-strftime(strftime_buf, sizeof(strftime_buf), "%c", &timeinfo);
-printf("The current date/time is: %s\n", strftime_buf);
+	setenv("TZ", "EBST3", 1);
+	tzset();
+	localtime_r(&now, &timeinfo);
+//char strftime_buf[64];
+//strftime(strftime_buf, sizeof(strftime_buf), "%c", &timeinfo);
+//printf("The current date/time is: %s\n", strftime_buf);
 	// Is time set? If not, tm_year will be (1970 - 1900).
 	if (timeinfo.tm_year < (2016 - 1900)) {
 		ESP_LOGI(TAG, "Time is not set yet. Connecting to WiFi and getting time over NTP.");
