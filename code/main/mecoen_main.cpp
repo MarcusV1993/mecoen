@@ -47,50 +47,50 @@ extern "C"
 void app_main()
 {
 	wifi_init_ap_sta();
-	xSemaphoreTake(semaphore_adc_fft, portMAX_DELAY);
-	xSemaphoreTake(semaphore_fft, portMAX_DELAY);
-	xSemaphoreTake(semaphore_adc, portMAX_DELAY);
-
-	init_phase(&phase_a);
-
-	init_adc();
-	printf("\ninit_adc!\n");
-
-	ESP_ERROR_CHECK(init_fft());
-	printf("\ninit_fft!\n");
-
-    http_server_setup();
-
-    xTaskCreatePinnedToCore(read_phase, "read_phase", 2048, &phase_a, 5, &task_adc, 1);
-    printf("\nread_phase task initialized!\n");
-//    vTaskDelay(pdMS_TO_TICKS(1));
-
-    xTaskCreatePinnedToCore(fft_continuous, "fft_continuous", 2048, &phase_a, 5, &task_fft, 1);
-	printf("\nread_fft task initialized!\n");
-
-	vTaskDelay(500 / portTICK_RATE_MS);
-
-    printf("\nMain loop initialized!\n");
+//	xSemaphoreTake(semaphore_adc_fft, portMAX_DELAY);
+//	xSemaphoreTake(semaphore_fft, portMAX_DELAY);
+//	xSemaphoreTake(semaphore_adc, portMAX_DELAY);
+//
+//	init_phase(&phase_a);
+//
+//	init_adc();
+//	printf("\ninit_adc!\n");
+//
+//	ESP_ERROR_CHECK(init_fft());
+//	printf("\ninit_fft!\n");
+//
+//    http_server_setup();
+//
+//    xTaskCreatePinnedToCore(read_phase, "read_phase", 2048, &phase_a, 5, &task_adc, 1);
+//    printf("\nread_phase task initialized!\n");
+////    vTaskDelay(pdMS_TO_TICKS(1));
+//
+//    xTaskCreatePinnedToCore(fft_continuous, "fft_continuous", 2048, &phase_a, 5, &task_fft, 1);
+//	printf("\nread_fft task initialized!\n");
+//
+//	vTaskDelay(500 / portTICK_RATE_MS);
+//
+//    printf("\nMain loop initialized!\n");
     while (1)
     {
 		delayMicroseconds((int) 1e6);
 
-		for (int i = 0; i < SAMPLING_FREQUENCY/REASON; i++)
-		{
-			phase_copy[i][0] = phase_a.voltage.samples[i];
-			phase_copy[i][1] = phase_a.current.samples[i];
-			phase_copy[i][2] = phase_a.power.samples[i];
-		}
-
-		for (int i = 0; i < SAMPLING_FREQUENCY/REASON; i++)
-		{
-			printf("%07.2f %07.2f %07.2f\n", phase_copy[i][0], phase_copy[i][1], phase_copy[i][2]);
-			fflush(stdout);
-			vTaskDelay(10 / portTICK_RATE_MS);
-		}
-		printf("\nVrms = %06.2f; Irms = %06.2f; P = %06.2f\n", phase_a.voltage.rms_previous, phase_a.current.rms_previous, phase_a.power.rms_previous);
-
-		printf("\n\n");
-		fflush(stdout);
+//		for (int i = 0; i < SAMPLING_FREQUENCY/REASON; i++)
+//		{
+//			phase_copy[i][0] = phase_a.voltage.samples[i];
+//			phase_copy[i][1] = phase_a.current.samples[i];
+//			phase_copy[i][2] = phase_a.power.samples[i];
+//		}
+//
+//		for (int i = 0; i < SAMPLING_FREQUENCY/REASON; i++)
+//		{
+//			printf("%07.2f %07.2f %07.2f\n", phase_copy[i][0], phase_copy[i][1], phase_copy[i][2]);
+//			fflush(stdout);
+//			vTaskDelay(10 / portTICK_RATE_MS);
+//		}
+//		printf("\nVrms = %06.2f; Irms = %06.2f; P = %06.2f\n", phase_a.voltage.rms_previous, phase_a.current.rms_previous, phase_a.power.rms_previous);
+//
+//		printf("\n\n");
+//		fflush(stdout);
     }
 }
