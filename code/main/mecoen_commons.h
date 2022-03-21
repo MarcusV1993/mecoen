@@ -5,11 +5,12 @@
  *      Author: marcus
  */
 
-#ifndef MAIN_ENERGY_METER_COMMONS_H_
-#define MAIN_ENERGY_METER_COMMONS_H_
+#ifndef MAIN_MECOEN_COMMONS_H_
+#define MAIN_MECOEN_COMMONS_H_
 
+#include "mecoen_definitions.h"
 
 void init_phase(Circuit_phase *phase);
 
 
-#endif /* MAIN_ENERGY_METER_COMMONS_H_ */
+#endif /* MAIN_MECOEN_COMMONS_H_ */

@@ -5,8 +5,8 @@
  *      Author: marcus
  */
 
-#ifndef MAIN_ENERGY_METER_FREERTOS_TASK_NOTIF_H_
-#define MAIN_ENERGY_METER_FREERTOS_TASK_NOTIF_H_
+#ifndef MAIN_MECOEN_FREERTOS_TASK_NOTIF_H_
+#define MAIN_MECOEN_FREERTOS_TASK_NOTIF_H_
 
 #include <stdint.h>
 #include <stdlib.h>
@@ -19,4 +19,4 @@ void vAFunctionCalledFromATask( uint8_t ucDataToTransmit,
                                 size_t xDataLength );
 
 
-#endif /* MAIN_ENERGY_METER_FREERTOS_TASK_NOTIF_H_ */
+#endif /* MAIN_MECOEN_FREERTOS_TASK_NOTIF_H_ */

@@ -1,12 +1,12 @@
 /*
- * energy_meter_commons.cpp
+ * mecoen_commons.cpp
  *
  *  Created on: 17 de mar. de 2022
  *      Author: marcus
  */
 
-#include "definitions.h"
-#include "energy_meter_commons.h"
+#include "mecoen_commons.h"
+#include "mecoen_definitions.h"
 
 void
 init_phase(Circuit_phase *phase)

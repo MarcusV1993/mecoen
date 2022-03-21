@@ -5,8 +5,8 @@
  *      Author: marcus
  */
 
-#ifndef MAIN_ENERGY_METER_I2C_H_
-#define MAIN_ENERGY_METER_I2C_H_
+#ifndef MAIN_MECOEN_I2C_H_
+#define MAIN_MECOEN_I2C_H_
 
 
 #define I2C_MASTER_SCL_IO           22      /*!< GPIO number used for I2C master clock */
@@ -22,4 +22,4 @@
 #define AT24C32                0x57        /*!< Slave address of the AT24C32 EEPROM module embedded in the DS3231 module */
 
 
-#endif /* MAIN_ENERGY_METER_I2C_H_ */
+#endif /* MAIN_MECOEN_I2C_H_ */

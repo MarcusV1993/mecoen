@@ -5,12 +5,11 @@
  *  https://www.freertos.org/RTOS_Task_Notification_As_Binary_Semaphore.html
  */
 
-#include "energy_meter_freertos_task_notif.h"
-
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
+#include "mecoen_freertos_task_notif.h"
 
 /* This is an example of a transmit function in a generic
 peripheral driver.  An RTOS task calls the transmit function,

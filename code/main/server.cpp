@@ -17,9 +17,9 @@
 #include "lwip/err.h"
 #include "server.h"
 
-#include "definitions.h"
-#include "energy_meter_adc.h"
-#include  "energy_meter_storage.h"
+#include "mecoen_adc.h"
+#include "mecoen_definitions.h"
+#include "mecoen_storage.h"
 
 #define EXAMPLE_ESP_WIFI_SSID      "mecoen"
 #define EXAMPLE_ESP_WIFI_PASS      "12345678"

@@ -5,8 +5,8 @@
  *      Author: marcus
  */
 
-#ifndef MAIN_ENERGY_METER_FFT_H_
-#define MAIN_ENERGY_METER_FFT_H_
+#ifndef MAIN_MECOEN_FFT_H_
+#define MAIN_MECOEN_FFT_H_
 
 
 #include "esp_err.h"
@@ -17,4 +17,4 @@ esp_err_t init_fft();
 void fft_continuous(void *arg);
 // end functions
 
-#endif /* MAIN_ENERGY_METER_FFT_H_ */
+#endif /* MAIN_MECOEN_FFT_H_ */

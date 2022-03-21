@@ -5,8 +5,6 @@
  *      Author: marcus
  */
 
-#include "energy_meter_adc.h"
-
 #include <math.h>
 #include <stdint.h>
 #include "esp_adc_cal.h"
@@ -16,8 +14,10 @@
 #include "freertos/task.h"
 #include "freertos/semphr.h"
 
-#include "definitions.h"
-#include "energy_meter_time.h"
+#include "mecoen_adc.h"
+
+#include "mecoen_definitions.h"
+#include "mecoen_time.h"
 
 // ADC period
 static const uint32_t SAMPLING_PERIOD_US = 1e6 / SAMPLING_FREQUENCY; // Real sampling frequency slightly lower than 1e6/SAMPLING_PERIOD_US

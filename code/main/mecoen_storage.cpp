@@ -6,8 +6,7 @@
  */
 
 
-#include "energy_meter_storage.h"
-
+#include "mecoen_storage.h"
 #include "nvs_flash.h"
 
 // NVS related functions

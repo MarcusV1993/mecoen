@@ -13,18 +13,21 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <time.h>
+#include <sys/time.h>
 
 #include "esp_err.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/semphr.h"
 
-#include "definitions.h"
-#include "energy_meter_commons.h"
+#include "mecoen_adc.h"
+#include "mecoen_wifi.h"
 #include "server.h"
-#include "energy_meter_adc.h"
-#include "energy_meter_time.h"
-#include "energy_meter_fft.h"
+#include "mecoen_commons.h"
+#include "mecoen_definitions.h"
+#include "mecoen_fft.h"
+#include "mecoen_time.h"
 
 
 Circuit_phase phase_a;
@@ -43,7 +46,8 @@ extern "C"
 #endif
 void app_main()
 {
-//	xSemaphoreTake(semaphore_adc_fft, portMAX_DELAY);
+	wifi_init_ap_sta();
+	xSemaphoreTake(semaphore_adc_fft, portMAX_DELAY);
 	xSemaphoreTake(semaphore_fft, portMAX_DELAY);
 	xSemaphoreTake(semaphore_adc, portMAX_DELAY);
 

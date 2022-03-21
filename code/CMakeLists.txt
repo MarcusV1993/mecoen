@@ -3,4 +3,4 @@
 cmake_minimum_required(VERSION 3.5)
 set(EXTRA_COMPONENT_DIRS /home/marcus/esp/esp-idf-lib/components)
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
-project(energy_meter)
+project(mecoen)

@@ -8,14 +8,14 @@
 #include <stdint.h>
 #include <math.h>
 
-#include "energy_meter_fft.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/semphr.h"
 
 #include "esp_dsp.h" // https://github.com/espressif/esp-dsp
 
-#include "definitions.h"
+#include "mecoen_fft.h"
+#include "mecoen_definitions.h"
 
 //https://github.com/espressif/esp-dsp/blob/master/examples/fft/main/dsps_fft_main.c
 // Window coefficients
