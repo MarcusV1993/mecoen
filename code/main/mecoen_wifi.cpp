@@ -105,10 +105,10 @@ printf("nvs initialized\n");
 printf("netif init and event loop create default\n");
     esp_netif_create_default_wifi_ap(); // AP
     esp_netif_create_default_wifi_sta(); //STA
-printf("create default ap and sta");
+printf("create default ap and sta\n");
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();  // AP and STA
 	ESP_ERROR_CHECK(esp_wifi_init(&cfg));  // AP and STA
-printf("inti config default\n");
+printf("init config default\n");
 	esp_event_handler_instance_t instance_any_id; // STA
 	esp_event_handler_instance_t instance_got_ip; // STA
 

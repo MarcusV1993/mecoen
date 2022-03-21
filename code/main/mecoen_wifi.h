@@ -14,7 +14,7 @@
 #define MECOEN_WIFI_AP_SSID      "mecoen"
 #define MECOEN_WIFI_AP_PASS      "12345678"
 #define MECOEN_WIFI_AP_CHANNEL   9 // 1 - 13
-#define MECOEN_WIFI_AP_MAX_STA_CONN       2
+#define MECOEN_WIFI_AP_MAX_STA_CONN       5
 // end AP default configuration
 
 // STA default configuration

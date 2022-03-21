@@ -10,9 +10,15 @@
 
 #include <stdint.h>
 
+#include "freertos/FreeRTOS.h"
+//#include "freertos/task.h"
+#include "freertos/semphr.h"
+
+
 //// ADC definitions
 #define SAMPLING_FREQUENCY 2048 // Number of samples per second | Used to set array length
 const int SAMPLING_FREQUENCY2 = 2 * SAMPLING_FREQUENCY;
+
 
 //// storage
 // storage time
@@ -22,13 +28,16 @@ static const int storage_period_s = STORAGE_PERIOD * 60;
 // end storage time
 //// end storage
 
+
+// structures
+// Structure to store magnitude and phase of a signal
 typedef struct Mag_phase
 {
 	float mag;
 	float phase_max_mag;
 } Mag_phase;
 
-// structures
+// Structure to store signal readings, as well as it's Root Mean Squared value, and the array for FFT calculations
 typedef struct Signal
 {
 	float samples[SAMPLING_FREQUENCY];
@@ -47,7 +56,8 @@ typedef struct Signal
 //	float sum_y[SAMPLING_FREQUENCY/2];
 } Signal;
 
-
+// Structure for voltage and current readings in a phase of the circuit
+// Variables to store power of the phase
 typedef struct Circuit_phase
 {
 	Signal voltage, current, power;
@@ -55,12 +65,11 @@ typedef struct Circuit_phase
 } Circuit_phase;
 // end structures
 
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
-#include "freertos/semphr.h"
 
-extern TaskHandle_t task_fft, task_adc;
-const UBaseType_t indexToWaitOn = 1;
+// Task sincronization variables
+//extern TaskHandle_t task_fft, task_adc;
+//const UBaseType_t indexToWaitOn = 1;
 extern SemaphoreHandle_t semaphore_adc_fft, semaphore_adc, semaphore_fft;
+// end Task sincronization variables
 
 #endif /* MAIN_DEFINITIONS_H_ */
