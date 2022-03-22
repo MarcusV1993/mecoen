@@ -78,9 +78,9 @@ void app_main()
 
 		// SNTP
 	init_time();
-char strftime_buf[64];
-struct tm timeinfo;
-timeval now;
+	char strftime_buf[64];
+	struct tm timeinfo;
+	timeval now;
 
 		// I2C | RTC DS3231
 	gettimeofday(&now, NULL);
@@ -89,8 +89,8 @@ timeval now;
 	// end Initializers
 
 	// Take semaphore to sync FFT and ADC tasks
-	xSemaphoreTake(semaphore_fft, portMAX_DELAY);
-	xSemaphoreTake(semaphore_adc, portMAX_DELAY);
+//	xSemaphoreTake(semaphore_fft, portMAX_DELAY);
+//	xSemaphoreTake(semaphore_adc, portMAX_DELAY);
 
 	// Create Tasks
 		// Web server
@@ -101,11 +101,11 @@ timeval now;
     printf("\nread_phase task initialized!\n");
 
     	// FFT
-    xTaskCreatePinnedToCore(fft_continuous, "fft_continuous", 2048, &phase_a, 5, &task_fft, 1);
-	printf("\nread_fft task initialized!\n");
+//    xTaskCreatePinnedToCore(fft_continuous, "fft_continuous", 2048, &phase_a, 5, &task_fft, 1);
+//	printf("\nread_fft task initialized!\n");
 
 		// I2C | RTC DS3231
-    xTaskCreate(rtc_ds3231, "rtc_ds3231", configMINIMAL_STACK_SIZE * 3, NULL, 5, NULL);
+//    xTaskCreate(rtc_ds3231, "rtc_ds3231", configMINIMAL_STACK_SIZE * 3, NULL, 5, NULL);
 	// end Create Tasks
 
 	vTaskDelay(500 / portTICK_RATE_MS);
@@ -113,29 +113,29 @@ timeval now;
     printf("\nMain loop initialized!\n");
     while (1)
     {
-//		delayMicroseconds((int) 5e6); // 5 s
-        vTaskDelay(pdMS_TO_TICKS(5000)); // 5 s
+		delayMicroseconds((int) 1e6); // 5 s
+//        vTaskDelay(pdMS_TO_TICKS(5000)); // 5 s
 
-		gettimeofday(&now, NULL);
-		localtime_r(&now.tv_sec, &timeinfo);
-		strftime(strftime_buf, sizeof(strftime_buf), "%c", &timeinfo);
-		printf("The current date/time is: %s\n", strftime_buf);
-//		for (int i = 0; i < SAMPLING_FREQUENCY/REASON; i++)
-//		{
-//			phase_copy[i][0] = phase_a.voltage.samples[i];
-//			phase_copy[i][1] = phase_a.current.samples[i];
-//			phase_copy[i][2] = phase_a.power.samples[i];
-//		}
-//
-//		for (int i = 0; i < SAMPLING_FREQUENCY/REASON; i++)
-//		{
-//			printf("%07.2f %07.2f %07.2f\n", phase_copy[i][0], phase_copy[i][1], phase_copy[i][2]);
-//			fflush(stdout);
-//			vTaskDelay(10 / portTICK_RATE_MS);
-//		}
+//		gettimeofday(&now, NULL);
+//		localtime_r(&now.tv_sec, &timeinfo);
+//		strftime(strftime_buf, sizeof(strftime_buf), "%c", &timeinfo);
+//		printf("The current date/time is: %s\n", strftime_buf);
+		for (int i = 0; i < SAMPLING_FREQUENCY/REASON; i++)
+		{
+			phase_copy[i][0] = phase_a.voltage.samples[i];
+			phase_copy[i][1] = phase_a.current.samples[i];
+			phase_copy[i][2] = phase_a.voltage.samples[i] * phase_a.current.samples[i]; //phase_a.power.samples[i];
+		}
+
+		for (int i = 0; i < SAMPLING_FREQUENCY/REASON; i++)
+		{
+			printf("%07.2f %07.2f %07.2f\n", phase_copy[i][0], phase_copy[i][1], phase_copy[i][2]);
+			fflush(stdout);
+			vTaskDelay(10 / portTICK_RATE_MS);
+		}
 //		printf("\nVrms = %06.2f; Irms = %06.2f; P = %06.2f\n", phase_a.voltage.rms_previous, phase_a.current.rms_previous, phase_a.power.rms_previous);
-//
-//		printf("\n\n");
-//		fflush(stdout);
+
+		printf("\n\n");
+		fflush(stdout);
     }
 }

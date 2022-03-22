@@ -131,12 +131,12 @@ read_phase(void *arg)
 	{
 //		Reading ADC
 		phase->voltage.samples[sample_num] = get_adc1_value(channel_v);
-		delayMicroseconds(1);
+//		delayMicroseconds(1);
 		phase->current.samples[sample_num] = get_adc1_value(channel_i);
 
-//		Remove DC bias, mV -> V
-		phase->voltage.samples[sample_num] = (phase->voltage.samples[sample_num] - zmpt101b_dc_bias);
-		phase->current.samples[sample_num] = (phase->current.samples[sample_num] - sct013_dc_bias);
+//		Remove DC bias
+//		phase->voltage.samples[sample_num] = (phase->voltage.samples[sample_num] - zmpt101b_dc_bias);
+//		phase->current.samples[sample_num] = (phase->current.samples[sample_num] - sct013_dc_bias);
 
 //		Convert mV -> V
 //		phase->voltage.samples[sample_num] /= 1000;
@@ -147,36 +147,36 @@ read_phase(void *arg)
 //		phase->current.samples[sample] =   sct013_calibration * (phase->current.samples[sample] -   sct013_dc_bias);
 
 //		Instant power
-		phase->power.samples[sample_num] = phase->voltage.samples[sample_num] * phase->current.samples[sample_num];
+//		phase->power.samples[sample_num] = phase->voltage.samples[sample_num] * phase->current.samples[sample_num];
 
 //		RMS
-		phase->voltage.rms += phase->voltage.samples[sample_num]*phase->voltage.samples[sample_num];
-		phase->current.rms += phase->current.samples[sample_num]*phase->current.samples[sample_num];
+//		phase->voltage.rms += phase->voltage.samples[sample_num]*phase->voltage.samples[sample_num];
+//		phase->current.rms += phase->current.samples[sample_num]*phase->current.samples[sample_num];
 
 		sample_num++;
-		if(sample_num >= SAMPLING_FREQUENCY)
+		if (sample_num >= SAMPLING_FREQUENCY)
 		{
 			sample_num = 0;
 
-			xSemaphoreGive(semaphore_fft);
+//			xSemaphoreGive(semaphore_fft);
 //			xTaskNotifyGiveIndexed(task_fft, indexToWaitOn); // Notify fft task that array has been filled
 //printf("\nADC give task\n");
 //delayMicroseconds(100);
-			xSemaphoreTake(semaphore_adc, portMAX_DELAY);
+//			xSemaphoreTake(semaphore_adc, portMAX_DELAY);
 //			ulTaskNotifyTakeIndexed(indexToWaitOn, pdFALSE, portMAX_DELAY/*pdMS_TO_TICKS(5000)*/); // Wait until fft task finished copying array
 //printf("\nADC take task\n");
 
 //	Imprecision for not calculating RMS considering integer multiples of the signal period
-			phase->voltage.rms_previous = sqrt(phase->voltage.rms / SAMPLING_FREQUENCY);
-			phase->current.rms_previous = sqrt(phase->current.rms / SAMPLING_FREQUENCY);
-
-			phase->power.rms_previous = phase->voltage.rms_previous * phase->current.rms_previous;
-
-			phase->voltage.rms = 0.0;
-			phase->current.rms = 0.0;
+//			phase->voltage.rms_previous = sqrt(phase->voltage.rms / SAMPLING_FREQUENCY);
+//			phase->current.rms_previous = sqrt(phase->current.rms / SAMPLING_FREQUENCY);
+//
+//			phase->power.rms_previous = phase->voltage.rms_previous * phase->current.rms_previous;
+//
+//			phase->voltage.rms = 0.0;
+//			phase->current.rms = 0.0;
 		}
 
-		delayMicroseconds(SAMPLING_PERIOD_US);
+		delayMicroseconds(SAMPLING_PERIOD_US / 4);
 	}
 }
 // end functions

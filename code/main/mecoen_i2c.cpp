@@ -4,7 +4,7 @@
  *  Created on: 13 de mar. de 2022
  *      Author: marcus
  *
- *  Reference:https://github.com/UncleRus/esp-idf-lib/tree/master/examples/ds3231
+ *  Reference: https://github.com/UncleRus/esp-idf-lib/tree/master/examples/ds3231
  */
 
 #include <stdio.h>
@@ -42,6 +42,9 @@ rtc_ds3231 (void *arg)
 
 	while(1)
 	{
+// Check https://www.freertos.org/vtaskdelayuntil.html
+// Try for synchronize ESP32 with RTC
+// To-do: Triple sync ESP32, TRC, NTP
         vTaskDelay(pdMS_TO_TICKS(7000)); // 7 s
 
         if (ds3231_get_temp_float(&dev, &temp) != ESP_OK)

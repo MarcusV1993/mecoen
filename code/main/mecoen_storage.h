@@ -10,7 +10,10 @@
 
 #include "esp_err.h"
 
+// Functions
 esp_err_t init_nvs();
 
+//void init_wl_fat_vfs();
+// end Functions
 
 #endif /* MAIN_MECOEN_STORAGE_H_ */
