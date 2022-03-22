@@ -3,27 +3,64 @@
  *
  *  Created on: 13 de mar. de 2022
  *      Author: marcus
+ *
+ *  Reference:https://github.com/UncleRus/esp-idf-lib/tree/master/examples/ds3231
  */
 
-#include "driver/i2c.h"
+#include <stdio.h>
+#include <string.h>
+#include "esp_err.h"
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
+
+#include "ds3231.h"
+
+#include "mecoen_time.h"
 #include "mecoen_i2c.h"
 
-//#include "ds3231.h"
 
-//static esp_err_t i2c_master_init(void)
-//{
-//    int i2c_master_port = I2C_MASTER_NUM;
-//
-//    i2c_config_t conf = { };
-//    conf.mode = I2C_MODE_MASTER;
-//    conf.sda_io_num = I2C_MASTER_SDA_IO;
-//    conf.scl_io_num = I2C_MASTER_SCL_IO;
-//    conf.sda_pullup_en = GPIO_PULLUP_ENABLE;
-//    conf.scl_pullup_en = GPIO_PULLUP_ENABLE;
-//    conf.master.clk_speed = I2C_MASTER_FREQ_HZ;
-//
-//    i2c_param_config(i2c_master_port, &conf);
-//
-//    return i2c_driver_install(i2c_master_port, conf.mode, I2C_MASTER_RX_BUF_DISABLE, I2C_MASTER_TX_BUF_DISABLE, 0);
-//}
+i2c_dev_t dev;
 
+
+void
+init_rtc_ds3231(struct tm *current_time)
+{
+    ESP_ERROR_CHECK(i2cdev_init());
+
+	memset(&dev, 0, sizeof(i2c_dev_t));
+
+	ESP_ERROR_CHECK(ds3231_init_desc(&dev, 0, I2C_MASTER_SDA_IO, I2C_MASTER_SCL_IO));
+
+    ESP_ERROR_CHECK(ds3231_set_time(&dev, current_time));
+}
+
+void
+rtc_ds3231 (void *arg)
+{
+	float temp;
+	struct tm time;
+
+	while(1)
+	{
+        vTaskDelay(pdMS_TO_TICKS(7000)); // 7 s
+
+        if (ds3231_get_temp_float(&dev, &temp) != ESP_OK)
+        {
+            printf("Could not get temperature\n");
+            continue;
+        }
+
+        if (ds3231_get_time(&dev, &time) != ESP_OK)
+        {
+            printf("Could not get time\n");
+            continue;
+        }
+
+        /* float is used in printf(). you need non-default configuration in
+         * sdkconfig for ESP8266, which is enabled by default for this
+         * example. see sdkconfig.defaults.esp8266
+         */
+        printf("%04d-%02d-%02d %02d:%02d:%02d, %.2f deg Cel\n", time.tm_year + 1900 /*Add 1900 for better readability*/, time.tm_mon + 1,
+            time.tm_mday, time.tm_hour, time.tm_min, time.tm_sec, temp);
+	}
+}

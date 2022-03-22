@@ -29,6 +29,7 @@
 #include "mecoen_definitions.h"
 #include "mecoen_fft.h"
 #include "mecoen_time.h"
+#include "mecoen_i2c.h"
 
 
 Circuit_phase phase_a;
@@ -75,11 +76,16 @@ void app_main()
 	ESP_ERROR_CHECK(init_fft());
 	printf("\ninit_fft!\n");
 
-	// SNTP
+		// SNTP
 	init_time();
 char strftime_buf[64];
 struct tm timeinfo;
 timeval now;
+
+		// I2C | RTC DS3231
+	gettimeofday(&now, NULL);
+	localtime_r(&now.tv_sec, &timeinfo);
+	init_rtc_ds3231(&timeinfo);
 	// end Initializers
 
 	// Take semaphore to sync FFT and ADC tasks
@@ -97,6 +103,9 @@ timeval now;
     	// FFT
     xTaskCreatePinnedToCore(fft_continuous, "fft_continuous", 2048, &phase_a, 5, &task_fft, 1);
 	printf("\nread_fft task initialized!\n");
+
+		// I2C | RTC DS3231
+    xTaskCreate(rtc_ds3231, "rtc_ds3231", configMINIMAL_STACK_SIZE * 3, NULL, 5, NULL);
 	// end Create Tasks
 
 	vTaskDelay(500 / portTICK_RATE_MS);
@@ -104,7 +113,8 @@ timeval now;
     printf("\nMain loop initialized!\n");
     while (1)
     {
-		delayMicroseconds((int) 1e6); // 1 s
+//		delayMicroseconds((int) 5e6); // 5 s
+        vTaskDelay(pdMS_TO_TICKS(5000)); // 5 s
 
 		gettimeofday(&now, NULL);
 		localtime_r(&now.tv_sec, &timeinfo);
