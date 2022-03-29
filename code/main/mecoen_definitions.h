@@ -15,6 +15,9 @@
 #include "freertos/semphr.h"
 
 
+// Array size
+#define N_ARRAY_LENGTH 2048
+
 //// ADC definitions
 #define SAMPLING_FREQUENCY 2048 // Number of samples per second | Used to set array length
 const int SAMPLING_FREQUENCY2 = 2 * SAMPLING_FREQUENCY;
@@ -23,7 +26,7 @@ const int SAMPLING_FREQUENCY2 = 2 * SAMPLING_FREQUENCY;
 //// storage
 // storage time
 #define STORAGE_PERIOD 5 // minutes
-#define STORAGE_MAiNTAIN 63 // days
+#define STORAGE_MAINTAIN 63 // days
 static const int storage_period_s = STORAGE_PERIOD * 60;
 // end storage time
 //// end storage

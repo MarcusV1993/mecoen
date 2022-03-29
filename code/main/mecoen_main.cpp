@@ -122,14 +122,14 @@ void app_main()
 //		printf("The current date/time is: %s\n", strftime_buf);
 		for (int i = 0; i < SAMPLING_FREQUENCY/REASON; i++)
 		{
-			phase_copy[i][0] = phase_a.voltage.samples[i];
-			phase_copy[i][1] = phase_a.current.samples[i];
-			phase_copy[i][2] = phase_a.voltage.samples[i] * phase_a.current.samples[i]; //phase_a.power.samples[i];
+			phase_copy[i][0] = (phase_a.voltage.samples[i] - 1243 + 50) / 1000;
+			phase_copy[i][1] = (phase_a.current.samples[i] - 1060) / 1000;
+			phase_copy[i][2] = phase_copy[i][0] * phase_copy[i][1]; //phase_a.power.samples[i];
 		}
 
 		for (int i = 0; i < SAMPLING_FREQUENCY/REASON; i++)
 		{
-			printf("%07.2f %07.2f %07.2f\n", phase_copy[i][0], phase_copy[i][1], phase_copy[i][2]);
+			printf("%06.4f %06.4f %04.4f\n", phase_copy[i][0], phase_copy[i][1], phase_copy[i][2]);
 			fflush(stdout);
 			vTaskDelay(10 / portTICK_RATE_MS);
 		}
