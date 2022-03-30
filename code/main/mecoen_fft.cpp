@@ -20,7 +20,7 @@
 //https://github.com/espressif/esp-dsp/blob/master/examples/fft/main/dsps_fft_main.c
 // Window coefficients
 __attribute__((aligned(16)))
-float wind[SAMPLING_FREQUENCY]; // ?? extern float wind[SAMPLING_FREQUENCY]; ??
+float wind[N_ARRAY_LENGTH]; // ?? extern float wind[SAMPLING_FREQUENCY]; ??
 
 esp_err_t
 init_fft()
@@ -30,7 +30,7 @@ init_fft()
 	if (ret  != ESP_OK)
 		ESP_LOGE("FFT", "Not possible to initialize FFT. Error = %i", ret);
 	else
-		dsps_wind_hann_f32(wind, SAMPLING_FREQUENCY); // Generate hann window
+		dsps_wind_hann_f32(wind, N_ARRAY_LENGTH); // Generate hann window
 
     return ret;
 }
@@ -40,16 +40,16 @@ void
 fft_function(Signal *signal)
 {
 	// FFT
-    dsps_fft2r_fc32(signal->y_cf, SAMPLING_FREQUENCY);
+    dsps_fft2r_fc32(signal->y_cf, N_ARRAY_LENGTH);
     // Bit reverse
-	dsps_bit_rev_fc32(signal->y_cf, SAMPLING_FREQUENCY);
+	dsps_bit_rev_fc32(signal->y_cf, N_ARRAY_LENGTH);
 	// Convert one complex vector to two complex vectors
-	dsps_cplx2reC_fc32(signal->y_cf, SAMPLING_FREQUENCY);
+	dsps_cplx2reC_fc32(signal->y_cf, N_ARRAY_LENGTH);
 
 	signal->mag_phase.mag = 0.0;
 	int max_magnitude_index = 0;
 	float max_magnitude = 0.0, magnitude_k = 0.0;
-	for (int k = 0; k < SAMPLING_FREQUENCY / 2; k++)
+	for (int k = 0; k < N_ARRAY_LENGTH / 2; k++)
 	{
 		magnitude_k = ((signal->y_cf[k * 2] * signal->y_cf[k * 2]) + (signal->y_cf[(k * 2) + 1] * signal->y_cf[(k * 2) + 1])) / SAMPLING_FREQUENCY;
 		signal->mag_phase.mag += magnitude_k;
@@ -83,7 +83,7 @@ fft_circuit_phase(Circuit_phase *phase)
 	phase->voltage.mag_phase.mag = 0.0;
 	phase->current.mag_phase.mag = 0.0;
 	  phase->power.mag_phase.mag = 0.0;
-	for (int k = 0; k < SAMPLING_FREQUENCY / 2; k++) {
+	for (int k = 0; k < N_ARRAY_LENGTH / 2; k++) {
 		// Voltage
 		magnitude_k[0] = ((phase->voltage.y_cf[k * 2] * phase->voltage.y_cf[k * 2]) + (phase->voltage.y_cf[(k * 2) + 1] * phase->voltage.y_cf[(k * 2) + 1])) / SAMPLING_FREQUENCY;
 		phase->voltage.mag_phase.mag += magnitude_k[0];
@@ -153,7 +153,7 @@ fft_continuous(void *arg)
 //		ret = ulTaskNotifyTakeIndexed(indexToWaitOn, pdFALSE, portMAX_DELAY/*pdMS_TO_TICKS(5000)*/); // Wait for adc task to fill array
 		xSemaphoreTake(semaphore_fft, portMAX_DELAY);
 //printf("\nFFT received task\n");
-		for (i = 0; i < SAMPLING_FREQUENCY; i++)
+		for (i = 0; i < N_ARRAY_LENGTH; i++)
 		{
 			phase->voltage.y_cf[2 * i] = phase->voltage.samples[i] * wind[i];
 			phase->voltage.y_cf[(2 * i) + 1] = 0; // Real signal has imaginary part 0

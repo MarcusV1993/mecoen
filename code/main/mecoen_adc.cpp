@@ -6,6 +6,7 @@
  */
 
 #include <math.h>
+#include <stdio.h>
 #include <stdint.h>
 #include "esp_adc_cal.h"
 #include "driver/adc.h"
@@ -127,12 +128,29 @@ read_phase(void *arg)
 //	configASSERT(task_fft != NULL);
 //	xSemaphoreTake(semaphore_adc_fft, portMAX_DELAY);
 
+	for (sample_num = 0; sample_num < N_ARRAY_LENGTH; sample_num++)
+	{
+		phase->voltage.samples[sample_num] = get_adc1_value(channel_v);
+		zmpt101b_vdc = ( ( (N_ARRAY_LENGTH - 1) * zmpt101b_vdc) + phase->voltage.samples[sample_num]) / N_ARRAY_LENGTH;
+		phase->current.samples[sample_num] = get_adc1_value(channel_i);
+		sct013_vdc = ( ( (N_ARRAY_LENGTH - 1) * sct013_vdc) + phase->current.samples[sample_num]) / N_ARRAY_LENGTH;
+	}
+	sample_num = 0;
+
 	while(1)
 	{
+		// Remove last read value from moving average DC
+		zmpt101b_vdc -= phase->voltage.samples[sample_num] / N_ARRAY_LENGTH;
+		sct013_vdc -= phase->current.samples[sample_num] / N_ARRAY_LENGTH;
+
 //		Reading ADC
 		phase->voltage.samples[sample_num] = get_adc1_value(channel_v);
 //		delayMicroseconds(1);
 		phase->current.samples[sample_num] = get_adc1_value(channel_i);
+
+		// Add newest read value to moving average DC
+		zmpt101b_vdc += phase->voltage.samples[sample_num] / N_ARRAY_LENGTH;
+		sct013_vdc += phase->current.samples[sample_num] / N_ARRAY_LENGTH;
 
 //		Remove DC bias
 //		phase->voltage.samples[sample_num] = (phase->voltage.samples[sample_num] - zmpt101b_dc_bias);
@@ -154,7 +172,7 @@ read_phase(void *arg)
 //		phase->current.rms += phase->current.samples[sample_num]*phase->current.samples[sample_num];
 
 		sample_num++;
-		if (sample_num >= SAMPLING_FREQUENCY)
+		if (sample_num >= N_ARRAY_LENGTH)
 		{
 			sample_num = 0;
 

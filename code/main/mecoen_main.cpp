@@ -16,6 +16,8 @@
 #include <time.h>
 #include <sys/time.h>
 
+#include <math.h>
+
 #include "esp_err.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -36,11 +38,14 @@ Circuit_phase phase_a;
 
 
 static const int REASON = 4;
-float phase_copy[SAMPLING_FREQUENCY/REASON][3];
+float phase_copy[N_ARRAY_LENGTH / REASON][3];
 
 TaskHandle_t task_adc = NULL, task_fft = NULL;
 SemaphoreHandle_t semaphore_adc = xSemaphoreCreateMutex();
 SemaphoreHandle_t semaphore_fft = xSemaphoreCreateMutex();
+
+float zmpt101b_vdc = ZMPT101B_VDC;
+float  sct013_vdc = SCT013_VDC;
 
 #ifdef __cplusplus
 extern "C"
@@ -109,7 +114,6 @@ void app_main()
 	// end Create Tasks
 
 	vTaskDelay(500 / portTICK_RATE_MS);
-
     printf("\nMain loop initialized!\n");
     while (1)
     {
@@ -120,20 +124,36 @@ void app_main()
 //		localtime_r(&now.tv_sec, &timeinfo);
 //		strftime(strftime_buf, sizeof(strftime_buf), "%c", &timeinfo);
 //		printf("The current date/time is: %s\n", strftime_buf);
-		for (int i = 0; i < SAMPLING_FREQUENCY/REASON; i++)
+		phase_a.voltage.rms = 0;
+		phase_a.current.rms = 0;
+
+		for (int i = 0; i < N_ARRAY_LENGTH / REASON; i++)
 		{
-			phase_copy[i][0] = (phase_a.voltage.samples[i] - 1243 + 50) / 1000;
-			phase_copy[i][1] = (phase_a.current.samples[i] - 1060) / 1000;
-			phase_copy[i][2] = phase_copy[i][0] * phase_copy[i][1]; //phase_a.power.samples[i];
+			phase_copy[i][0] = (phase_a.voltage.samples[i] - zmpt101b_vdc) * 0.60595;
+			phase_copy[i][1] = (phase_a.current.samples[i] - sct013_vdc) * 0.00932;
+
+			phase_a.voltage.rms += phase_copy[i][0] * phase_copy[i][0];
+			phase_a.current.rms += phase_copy[i][1] * phase_copy[i][1];
+
+			phase_copy[i][2] = phase_copy[i][0] * phase_copy[i][1];
 		}
 
-		for (int i = 0; i < SAMPLING_FREQUENCY/REASON; i++)
+		phase_a.voltage.rms = sqrt(phase_a.voltage.rms / (N_ARRAY_LENGTH / REASON) );
+		phase_a.current.rms = sqrt(phase_a.current.rms / (N_ARRAY_LENGTH / REASON) );
+		phase_a.power_apparent = phase_a.voltage.rms * phase_a.current.rms;
+
+		vTaskDelay(10 / portTICK_RATE_MS);
+
+		for (int i = 0; i < N_ARRAY_LENGTH / REASON; i++)
 		{
-			printf("%06.4f %06.4f %04.4f\n", phase_copy[i][0], phase_copy[i][1], phase_copy[i][2]);
+			printf("%08.4f %08.4f %08.4f\n", phase_copy[i][0], phase_copy[i][1], phase_copy[i][2]);
 			fflush(stdout);
 			vTaskDelay(10 / portTICK_RATE_MS);
 		}
-//		printf("\nVrms = %06.2f; Irms = %06.2f; P = %06.2f\n", phase_a.voltage.rms_previous, phase_a.current.rms_previous, phase_a.power.rms_previous);
+		printf("\nVrms = %06.2f; Irms = %06.2f; P = %06.2f\n", phase_a.voltage.rms, phase_a.current.rms, phase_a.power_apparent);
+
+		phase_a.voltage.rms = phase_a.voltage.rms_previous;
+		phase_a.current.rms = phase_a.current.rms_previous;
 
 		printf("\n\n");
 		fflush(stdout);

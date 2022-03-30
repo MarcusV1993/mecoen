@@ -17,11 +17,21 @@
 
 // Array size
 #define N_ARRAY_LENGTH 2048
+const int N_ARRAY_LENGTH2 = 2 * N_ARRAY_LENGTH;
 
 //// ADC definitions
-#define SAMPLING_FREQUENCY 2048 // Number of samples per second | Used to set array length
+#define SAMPLING_FREQUENCY 2500
+//// Initial DC value for ADC readings
+#define ZMPT101B_VDC 1211.8
+#define   SCT013_VDC 1257.45
+//// end Initial DC value for ADC readings
 const int SAMPLING_FREQUENCY2 = 2 * SAMPLING_FREQUENCY;
 
+//// to save moving average
+extern float zmpt101b_vdc;
+extern float  sct013_vdc;
+////end to save moving average
+// end ADC definitions
 
 //// storage
 // storage time
@@ -43,16 +53,16 @@ typedef struct Mag_phase
 // Structure to store signal readings, as well as it's Root Mean Squared value, and the array for FFT calculations
 typedef struct Signal
 {
-	float samples[SAMPLING_FREQUENCY];
+	float samples[N_ARRAY_LENGTH];
 	float rms_previous = 0, rms = 0;
 
 	// FFT
 	// working complex array
 	__attribute__((aligned(16)))
-	float y_cf[SAMPLING_FREQUENCY*2];
+	float y_cf[N_ARRAY_LENGTH2];
 	// Pointers to result arrays
 	float* y1_cf = &y_cf[0];
-	float* y2_cf = &y_cf[SAMPLING_FREQUENCY];
+	float* y2_cf = &y_cf[N_ARRAY_LENGTH];
 	Mag_phase mag_phase;
 	// Sum of y1 and y2
 //	__attribute__((aligned(16)))
