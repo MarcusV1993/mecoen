@@ -24,6 +24,9 @@ const int N_ARRAY_LENGTH2 = 2 * N_ARRAY_LENGTH;
 //// Initial DC value for ADC readings
 #define ZMPT101B_VDC 1211.8
 #define   SCT013_VDC 1257.45
+
+#define ZMPT101B_CONSTANT_MULTIPLIER 0.60595
+#define SCT013_CONSTANT_MULTIPLIER 0.00932
 //// end Initial DC value for ADC readings
 const int SAMPLING_FREQUENCY2 = 2 * SAMPLING_FREQUENCY;
 
@@ -82,7 +85,7 @@ typedef struct Circuit_phase
 // Task sincronization variables
 //extern TaskHandle_t task_fft, task_adc;
 //const UBaseType_t indexToWaitOn = 1;
-extern SemaphoreHandle_t semaphore_adc_fft, semaphore_adc, semaphore_fft;
+extern SemaphoreHandle_t semaphore_adc_dc, semaphore_adc, semaphore_fft;
 // end Task sincronization variables
 
 #endif /* MAIN_DEFINITIONS_H_ */

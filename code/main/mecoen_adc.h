@@ -10,7 +10,7 @@
 
 
 #define DEFAULT_VREF    1100        //Use adc2_vref_to_gpio() to obtain a better estimate
-#define NO_OF_SAMPLES   4          //Multisampling
+#define NO_OF_SAMPLES   8          //Multisampling
 
 
 // voltage sensor parameters
@@ -35,6 +35,8 @@
 void init_adc();
 
 void read_phase(void *arg);
+
+void read_phase2(void *arg);
 // end accessible ADC functions
 
 

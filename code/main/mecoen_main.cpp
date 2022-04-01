@@ -40,7 +40,7 @@ Circuit_phase phase_a;
 static const int REASON = 4;
 float phase_copy[N_ARRAY_LENGTH / REASON][3];
 
-TaskHandle_t task_adc = NULL, task_fft = NULL;
+//TaskHandle_t task_adc = NULL, task_fft = NULL;
 SemaphoreHandle_t semaphore_adc = xSemaphoreCreateMutex();
 SemaphoreHandle_t semaphore_fft = xSemaphoreCreateMutex();
 
@@ -102,7 +102,8 @@ void app_main()
 	xTaskCreate(&http_server, "http_server", 2048, NULL, 5, NULL);
 
 		// ADC
-    xTaskCreatePinnedToCore(read_phase, "read_phase", 2048, &phase_a, 5, &task_adc, 1);
+//    xTaskCreatePinnedToCore(read_phase, "read_phase", 2048, &phase_a, 5, &task_adc, 1);
+    xTaskCreatePinnedToCore(read_phase2, "read_phase2", 2048, &phase_a, 5, &task_adc, 1);
     printf("\nread_phase task initialized!\n");
 
     	// FFT
@@ -129,8 +130,11 @@ void app_main()
 
 		for (int i = 0; i < N_ARRAY_LENGTH / REASON; i++)
 		{
-			phase_copy[i][0] = (phase_a.voltage.samples[i] - zmpt101b_vdc) * 0.60595;
-			phase_copy[i][1] = (phase_a.current.samples[i] - sct013_vdc) * 0.00932;
+			phase_copy[i][0] = phase_a.voltage.samples[i] - zmpt101b_vdc;
+			phase_copy[i][1] = phase_a.current.samples[i] - sct013_vdc;
+
+//			phase_copy[i][0] = (phase_a.voltage.samples[i] - zmpt101b_vdc) * 0.60595;
+//			phase_copy[i][1] = (phase_a.current.samples[i] - sct013_vdc) * 0.00932;
 
 			phase_a.voltage.rms += phase_copy[i][0] * phase_copy[i][0];
 			phase_a.current.rms += phase_copy[i][1] * phase_copy[i][1];
@@ -142,7 +146,7 @@ void app_main()
 		phase_a.current.rms = sqrt(phase_a.current.rms / (N_ARRAY_LENGTH / REASON) );
 		phase_a.power_apparent = phase_a.voltage.rms * phase_a.current.rms;
 
-		vTaskDelay(10 / portTICK_RATE_MS);
+//		vTaskDelay(10 / portTICK_RATE_MS);
 
 		for (int i = 0; i < N_ARRAY_LENGTH / REASON; i++)
 		{

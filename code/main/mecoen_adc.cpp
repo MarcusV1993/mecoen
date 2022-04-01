@@ -131,8 +131,8 @@ read_phase(void *arg)
 	for (sample_num = 0; sample_num < N_ARRAY_LENGTH; sample_num++)
 	{
 		phase->voltage.samples[sample_num] = get_adc1_value(channel_v);
-		zmpt101b_vdc = ( ( (N_ARRAY_LENGTH - 1) * zmpt101b_vdc) + phase->voltage.samples[sample_num]) / N_ARRAY_LENGTH;
 		phase->current.samples[sample_num] = get_adc1_value(channel_i);
+		zmpt101b_vdc = ( ( (N_ARRAY_LENGTH - 1) * zmpt101b_vdc) + phase->voltage.samples[sample_num]) / N_ARRAY_LENGTH;
 		sct013_vdc = ( ( (N_ARRAY_LENGTH - 1) * sct013_vdc) + phase->current.samples[sample_num]) / N_ARRAY_LENGTH;
 	}
 	sample_num = 0;
@@ -193,6 +193,97 @@ read_phase(void *arg)
 //			phase->voltage.rms = 0.0;
 //			phase->current.rms = 0.0;
 		}
+
+		delayMicroseconds(SAMPLING_PERIOD_US / 4);
+	}
+}
+
+/*****************************************************************************************************************************/
+void
+adc_read_interrupt(adc_channel_t channel_v1, adc_channel_t channel_i1, uint32_t *readings)
+{
+/*
+ * Makes multi-sampling readings of the voltage and current inputs, and returns the sum of the samples in "readings" array
+ * Input: channel_v1: channel of the voltage sensor
+ *        channel_i1: channel of the current sensor
+ *        readings: pointer in which will be stored the sum of the uint32t readings.
+ *        	Even positions store voltage readings
+ *        	Odd positions store current readings
+ */
+	readings[0] = 0;
+	readings[1] = 0;
+
+	// Multisampling
+	for (int i = 0; i < NO_OF_SAMPLES; i++)
+	{
+		readings[0] += adc1_get_raw((adc1_channel_t) channel_v1);
+		readings[1] += adc1_get_raw((adc1_channel_t) channel_i1);
+	}
+}
+
+void
+read_phase2(void *arg)
+{
+	Circuit_phase *phase = (Circuit_phase *) arg;
+	phase->voltage.rms = phase->voltage.rms_previous = 0.0;
+
+	float zmpt101b_vdc2 = 0.0;
+	float sct013_vdc2 = 0.0;
+
+	uint32_t readings[2];
+
+	int sample_num = 0;
+
+	// Calculate the average DC value of each sensor
+	for (sample_num = 0; sample_num < N_ARRAY_LENGTH; sample_num++)
+	{
+		// Reading ADC
+		adc_read_interrupt(channel_v, channel_i, readings);
+		//Convert adc_reading to voltage in mV
+		phase->voltage.samples[sample_num] = (float) esp_adc_cal_raw_to_voltage(readings[0] / NO_OF_SAMPLES, adc_chars);
+		phase->current.samples[sample_num] = (float) esp_adc_cal_raw_to_voltage(readings[1] / NO_OF_SAMPLES, adc_chars);
+		zmpt101b_vdc2 += phase->voltage.samples[sample_num];
+		sct013_vdc2 += phase->current.samples[sample_num];
+	}
+	zmpt101b_vdc2 /= N_ARRAY_LENGTH;
+	sct013_vdc2 /= N_ARRAY_LENGTH;
+	sample_num = 0;
+
+	zmpt101b_vdc = zmpt101b_vdc2;
+	sct013_vdc = sct013_vdc2;
+	while(1)
+	{
+		// Remove last read value from moving average DC
+//		zmpt101b_vdc2 -= phase->voltage.samples[sample_num] / N_ARRAY_LENGTH;
+//		sct013_vdc2 -= phase->current.samples[sample_num] / N_ARRAY_LENGTH;
+
+		zmpt101b_vdc -= phase->voltage.samples[sample_num] / N_ARRAY_LENGTH;
+		sct013_vdc -= phase->current.samples[sample_num] / N_ARRAY_LENGTH;
+
+//		Reading ADC
+		adc_read_interrupt(channel_v, channel_i, readings);
+		//Convert adc_reading to voltage in mV
+		phase->voltage.samples[sample_num] = (float) esp_adc_cal_raw_to_voltage(readings[0] / NO_OF_SAMPLES, adc_chars);
+		phase->current.samples[sample_num] = (float) esp_adc_cal_raw_to_voltage(readings[1] / NO_OF_SAMPLES, adc_chars);
+
+		// Add newest read value to moving average DC
+//		zmpt101b_vdc2 += phase->voltage.samples[sample_num] / N_ARRAY_LENGTH;
+//		sct013_vdc2 += phase->current.samples[sample_num] / N_ARRAY_LENGTH;
+
+		zmpt101b_vdc += phase->voltage.samples[sample_num] / N_ARRAY_LENGTH;
+		sct013_vdc += phase->current.samples[sample_num] / N_ARRAY_LENGTH;
+
+//		Remove DC bias
+//		phase->voltage.samples[sample_num] = phase->voltage.samples[sample_num] - zmpt101b_vdc2;
+//		phase->current.samples[sample_num] = phase->current.samples[sample_num] - sct013_vdc2;
+
+//		Convert real world value
+//		phase->voltage.samples[sample_num] *= ZMPT101B_CONSTANT_MULTIPLIER;
+//		phase->current.samples[sample_num] *= SCT013_CONSTANT_MULTIPLIER;
+
+		sample_num++;
+		if (sample_num >= N_ARRAY_LENGTH)
+			sample_num = 0;
 
 		delayMicroseconds(SAMPLING_PERIOD_US / 4);
 	}
