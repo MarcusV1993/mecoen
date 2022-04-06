@@ -17,6 +17,63 @@
  ** FFT: https://github.com/espressif/esp-dsp/blob/master/examples/fft/main/dsps_fft_main.c
 */
 
+/*
+ * code structure:
+ * includes
+ *   includes std c libraries
+ *   includes esp-idf libraries
+ *     includes esp-idf system
+ *     includes esp -idf error handling
+ *     includes esp-idf freeRTOS
+ *     includes -esp-idf time
+ *       includes esp-idf time ntp
+ *     includes esp-idf ADC
+ *     includes esp-idf storage
+ *     includes esp-idf wi-fi
+ *       includes esp-idf wi-fi library for web server
+ *   includes esp-lib
+ *   includes esp-dsp
+ *   includes project headers
+ *
+ *  const
+ *    const ADC
+ *      const ADC period
+ *      const ADC ports and configuration
+ *      const ADC voltage sensor
+ *      const ADC current sensor
+ *    const time
+ *    const wi-fi
+ *    const storage
+ *    const web server
+ *
+ *  global variables
+ *    global variables semaphores
+ *    global variables time
+ *      global variables time ntp
+ *    global variables ADC
+ *    global variables wi-fi
+ *    global variables storage
+ *    global variables i2c
+ *    global variables FFT
+ *      global variables FFT Window coefficients
+ *    global variables web server
+ *
+ *  functions
+ *    functions variable initializer
+ *    functions time
+ *      functions time ntp
+ *    functions ADC
+ *    functions storage
+ *    functions storage NVS
+ *    functions wi-fi
+ *    functions web server
+ *    functions i2c
+ *    functions FFT
+ *
+ *  main
+*/
+
+
 // includes
 //// includes std c libraries
 #include <math.h>
@@ -99,42 +156,34 @@
 //// end includes esp-dsp
 
 //// includes project headers
-//#include "mecoen_adc.h"
-//#include "mecoen_wifi.h"
-//#include "server.h"
-//#include "mecoen_commons.h"
 #include "mecoen_definitions.h"
-//#include "mecoen_fft.h"
-//#include "mecoen_time.h"
-//#include "mecoen_i2c.h"
-//#include "mecoen_storage.h"
 //// end includes project headers
 // end includes
+
 
 // const
 //// const ADC
 ////// const ADC period
-static const int32_t SAMPLING_PERIOD_US = 1e6 / SAMPLING_FREQUENCY; // Real sampling frequency slightly lower than 1e6/SAMPLING_PERIOD_US
-static const float sampling_frequency = 1e6 / SAMPLING_PERIOD_US;
-static const float signal_to_rms = 1 / (SAMPLING_FREQUENCY * SAMPLING_PERIOD_US);
+static constexpr int32_t SAMPLING_PERIOD_US = 1e6 / SAMPLING_FREQUENCY; // Real sampling frequency slightly lower than 1e6/SAMPLING_PERIOD_US
+static constexpr float sampling_frequency = 1e6 / SAMPLING_PERIOD_US;
+static constexpr float signal_to_rms = 1 / (SAMPLING_FREQUENCY * SAMPLING_PERIOD_US);
 ////// end const ADC period
 
 ////// const ADC ports and configuration
-static esp_adc_cal_characteristics_t *adc_chars;
-static const adc_channel_t channel_v = ADC_CHANNEL_6;     // GPIO34
-static const adc_channel_t channel_i = ADC_CHANNEL_7;	  // GPIO35
-static const adc_atten_t atten = ADC_ATTEN_DB_11; // max = 3.9V -> https://docs.espressif.com/projects/esp-idf/en/latest/api-reference/peripherals/adc.html
-static const adc_unit_t unit = ADC_UNIT_1;
+static constexpr adc_channel_t channel_v = ADC_CHANNEL_6;     // GPIO34
+static constexpr adc_channel_t channel_i = ADC_CHANNEL_7;	  // GPIO35
+static constexpr adc_atten_t atten = ADC_ATTEN_DB_11; // max = 3.9V -> https://docs.espressif.com/projects/esp-idf/en/latest/api-reference/peripherals/adc.html
+static constexpr adc_unit_t unit = ADC_UNIT_1;
 ////// end const ADC ports and configuration
 
 ////// const ADC voltage sensor
-static const float zmpt101b_dc_bias = 1139/*(ZMPT101B_VCC * 1000 / 2) * ZMPT101B_R2 / (ZMPT101B_R1 + ZMPT101B_R2)*/; // Calculated: 1.107 V Measured: 1217 mV
-static const float zmpt101b_calibration = (220 * sqrt(2)) / (ZMPT101B_VMAX * 1000 / 2);
+static constexpr float zmpt101b_dc_bias = 1139/*(ZMPT101B_VCC * 1000 / 2) * ZMPT101B_R2 / (ZMPT101B_R1 + ZMPT101B_R2)*/; // Calculated: 1.107 V Measured: 1217 mV
+static constexpr float zmpt101b_calibration = (220 * sqrt(2)) / (ZMPT101B_VMAX * 1000 / 2);
 ////// end const ADC voltage sensor
 
 ////// const ADC current sensor
-static const float sct013_dc_bias = 1025;/*SCT013_VCC * 1000 * SCT013_R2 / (SCT013_R1 + SCT013_R2);*/ // Calculated: 1,032 V Measured: 1130 mV
-static const float sct013_calibration = (SCT013_NUMBER_TURNS / SCT013_BURDEN_RESISTOR);
+static constexpr float sct013_dc_bias = 1025;/*SCT013_VCC * 1000 * SCT013_R2 / (SCT013_R1 + SCT013_R2);*/ // Calculated: 1,032 V Measured: 1130 mV
+static constexpr float sct013_calibration = (SCT013_NUMBER_TURNS / SCT013_BURDEN_RESISTOR);
 ////// end const ADC current sensor
 //// end const ADC
 
@@ -150,12 +199,13 @@ static const char *TAG_WIFI = "wifi ap + station";
 
 
 //// const storage
-const char *base_path = "/mecoen"; // Mount path for the partition
+static constexpr int storage_period_s = STORAGE_PERIOD * 60;
+static const char *base_path = "/mecoen"; // Mount path for the partition
 //// end const storage
 
 
 //// const web server
-const static char http_html_hdr[] = "HTTP/1.1 200 OK\r\nContent-type: text/html\r\n\r\n";
+constexpr static char http_html_hdr[] = "HTTP/1.1 200 OK\r\nContent-type: text/html\r\n\r\n";
 //// end const web server
 // end const
 
@@ -167,8 +217,8 @@ float phase_copy[N_ARRAY_LENGTH / REASON][3];
 
 //// global variables semaphores
 //TaskHandle_t task_adc = NULL, task_fft = NULL;
-SemaphoreHandle_t semaphore_adc = xSemaphoreCreateMutex();
-SemaphoreHandle_t semaphore_fft = xSemaphoreCreateMutex();
+static SemaphoreHandle_t semaphore_adc = xSemaphoreCreateMutex();
+static SemaphoreHandle_t semaphore_fft = xSemaphoreCreateMutex();
 //// end global variables semaphores
 
 
@@ -184,8 +234,9 @@ RTC_DATA_ATTR static int boot_count = 0;
 
 
 //// global variables ADC
-float zmpt101b_vdc = ZMPT101B_VDC;
-float  sct013_vdc = SCT013_VDC;
+static esp_adc_cal_characteristics_t *adc_chars;
+static float zmpt101b_vdc = ZMPT101B_VDC;
+static float  sct013_vdc = SCT013_VDC;
 //// end global variables ADC
 
 
@@ -202,13 +253,15 @@ static wl_handle_t s_wl_handle = WL_INVALID_HANDLE; // Handle of the wear levell
 
 
 //// global variables i2c
-i2c_dev_t dev;
+static i2c_dev_t dev;
 //// end global variables i2c
 
+
 //// global variables FFT
-// Window coefficients
+////// global variables FFT Window coefficients
 __attribute__((aligned(16)))
 float wind[N_ARRAY_LENGTH];
+////// global variables FFT Window coefficients
 //// end global variables FFT
 
 
@@ -224,7 +277,7 @@ static char http_index_html_server[] = "\
 </body>\
 </html>";
 
-char message[100];
+static char message[100];
 //// end global variables web server
 // end global variables
 
@@ -232,14 +285,14 @@ char message[100];
 // functions
 //// functions variable initializer
 void
-init_phase(Circuit_phase *phase)
+init_phase()
 {
-	phase->voltage.y1_cf = &phase->voltage.y_cf[0];
-	phase->voltage.y2_cf = &phase->voltage.y_cf[SAMPLING_FREQUENCY];
-	phase->current.y1_cf = &phase->current.y_cf[0];
-	phase->current.y2_cf = &phase->current.y_cf[SAMPLING_FREQUENCY];
-	phase->power.y1_cf = &phase->power.y_cf[0];
-	phase->power.y2_cf = &phase->power.y_cf[SAMPLING_FREQUENCY];
+	phase_a.voltage.y1_cf = &phase_a.voltage.y_cf[0];
+	phase_a.voltage.y2_cf = &phase_a.voltage.y_cf[SAMPLING_FREQUENCY];
+	phase_a.current.y1_cf = &phase_a.current.y_cf[0];
+	phase_a.current.y2_cf = &phase_a.current.y_cf[SAMPLING_FREQUENCY];
+	phase_a.power.y1_cf = &phase_a.power.y_cf[0];
+	phase_a.power.y2_cf = &phase_a.power.y_cf[SAMPLING_FREQUENCY];
 }
 //// functions variable initializer
 
@@ -1181,7 +1234,7 @@ void app_main()
 	printf("\ninit wifi ap + sta\n");
 
 //		// Circuit phases
-//	init_phase(&phase_a);
+	init_phase();
 
 		// ADC
 	init_adc();

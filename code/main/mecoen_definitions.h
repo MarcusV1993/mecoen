@@ -13,6 +13,8 @@
 #include "freertos/FreeRTOS.h"
 //#include "freertos/task.h"
 #include "freertos/semphr.h"
+#include "driver/adc.h"
+#include "driver/gpio.h"
 
 
 /**********************************************************************/
@@ -122,21 +124,6 @@
 
 
 /**********************************************************************/
-// consts
-//// consts ADC
-////// consts ADC sampling
-const int SAMPLING_FREQUENCY2 = 2 * SAMPLING_FREQUENCY;
-////// end consts ADC sampling
-//// end consts ADC
-
-
-//// consts storage
-static const int storage_period_s = STORAGE_PERIOD * 60;
-//// end consts storage
-// end consts
-
-
-/**********************************************************************/
 // structures
 //// structure to store magnitude and phase of a signal
 typedef struct Mag_phase
@@ -158,8 +145,8 @@ typedef struct Signal
 	__attribute__((aligned(16)))
 	float y_cf[2 * N_ARRAY_LENGTH];
 	// Pointers to result arrays
-	float *y1_cf = &y_cf[0];
-	float *y2_cf = &y_cf[N_ARRAY_LENGTH];
+	float *y1_cf;
+	float *y2_cf;
 	Mag_phase mag_phase;
 	// Sum of y1 and y2
 //	__attribute__((aligned(16)))
@@ -176,22 +163,5 @@ typedef struct Circuit_phase
 } Circuit_phase;
 //// end structure for voltage and current readings in a phase of the circuit, and phase power calculation results
 // end structures
-
-
-
-/**********************************************************************/
-// ADC variables
-//// to save moving average
-extern float zmpt101b_vdc;
-extern float  sct013_vdc;
-////end to save moving average
-// end ADC variables
-
-
-// Task sincronization variables
-//extern TaskHandle_t task_fft, task_adc;
-//const UBaseType_t indexToWaitOn = 1;
-extern SemaphoreHandle_t semaphore_adc_dc, semaphore_adc, semaphore_fft;
-// end Task sincronization variables
 
 #endif /* MAIN_DEFINITIONS_H_ */
