@@ -23,6 +23,19 @@
 //// end definitions common
 
 
+//// definitions time
+#define NOP() asm volatile ("nop")
+
+////// definitions time ntp
+#ifndef INET6_ADDRSTRLEN
+#define INET6_ADDRSTRLEN 48
+#endif
+
+#define MECOEN_SNTP_SERVER_NAME "pool.ntp.org"
+////// end definitions time ntp
+//// end definitions time
+
+
 //// definitions ADC
 ////// definitions ADC peripheral reference voltage
 #define DEFAULT_VREF    1100        //Use adc2_vref_to_gpio() to obtain a better estimate
