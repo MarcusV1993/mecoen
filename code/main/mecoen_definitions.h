@@ -123,11 +123,6 @@
 
 /**********************************************************************/
 // consts
-//// consts common
-const int N_ARRAY_LENGTH2 = 2 * N_ARRAY_LENGTH;
-//// end consts common
-
-
 //// consts ADC
 ////// consts ADC sampling
 const int SAMPLING_FREQUENCY2 = 2 * SAMPLING_FREQUENCY;
@@ -161,7 +156,7 @@ typedef struct Signal
 	// FFT
 	// working complex array
 	__attribute__((aligned(16)))
-	float y_cf[N_ARRAY_LENGTH2];
+	float y_cf[2 * N_ARRAY_LENGTH];
 	// Pointers to result arrays
 	float *y1_cf = &y_cf[0];
 	float *y2_cf = &y_cf[N_ARRAY_LENGTH];
