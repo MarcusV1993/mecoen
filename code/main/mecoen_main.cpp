@@ -57,6 +57,12 @@
 #include "driver/gpio.h"
 ////// end includes esp-idf ADC
 
+////// includes esp-idf storage
+#include "nvs_flash.h"
+#include "esp_vfs.h"
+#include "esp_vfs_fat.h"
+////// end includes esp-idf storage
+
 ////// includes esp-idf wi-fi
 #include "esp_wifi.h"
 
@@ -74,9 +80,10 @@
 #include "mecoen_fft.h"
 //#include "mecoen_time.h"
 #include "mecoen_i2c.h"
-#include "mecoen_storage.h"
+//#include "mecoen_storage.h"
 
 
+// const
 //// const ADC
 ////// const ADC period
 static const int32_t SAMPLING_PERIOD_US = 1e6 / SAMPLING_FREQUENCY; // Real sampling frequency slightly lower than 1e6/SAMPLING_PERIOD_US
@@ -102,6 +109,21 @@ static const float sct013_dc_bias = 1025;/*SCT013_VCC * 1000 * SCT013_R2 / (SCT0
 static const float sct013_calibration = (SCT013_NUMBER_TURNS / SCT013_BURDEN_RESISTOR);
 ////// end const ADC current sensor
 //// end const ADC
+
+
+//// const time
+static const char *TAG_TIME = "mecoen_time";
+//// end const time
+
+
+//// const wi-fi
+static const char *TAG_WIFI = "wifi ap + station";
+//// end const wi-fi
+
+
+//// const storage
+const char *base_path = "/mecoen"; // Mount path for the partition
+//// end const storage
 // end const
 
 
@@ -124,7 +146,6 @@ SemaphoreHandle_t semaphore_fft = xSemaphoreCreateMutex();
  * maintains its value when ESP32 wakes from deep sleep.
  */
 RTC_DATA_ATTR static int boot_count = 0;
-static const char *TAG_TIME = "mecoen_time";
 ////// end global variables time ntp
 //// end global variables time
 
@@ -138,11 +159,13 @@ float  sct013_vdc = SCT013_VDC;
 //// global variables wi-fi
 /* FreeRTOS event group to signal when we are connected*/
 static EventGroupHandle_t s_wifi_event_group;
-
-static const char *TAG_WIFI = "wifi ap + station";
-
 static int s_retry_num = 0;
 //// end global variables wi-fi
+
+
+//// global variables storage
+static wl_handle_t s_wl_handle = WL_INVALID_HANDLE; // Handle of the wear levelling library instance
+//// end global variables storage
 // end global variables
 
 
@@ -581,6 +604,45 @@ read_phase2(void *arg)
 	}
 }
 //// end functions ADC
+
+
+//// functions storage
+////// functions storage NVS
+esp_err_t
+init_nvs()
+{
+	esp_err_t ret = nvs_flash_init();
+	if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+	  ESP_ERROR_CHECK(nvs_flash_erase());
+	  ret = nvs_flash_init();
+	}
+
+	return ret;
+}
+////// end functions storage NVS
+
+
+////// functions storage wear leveling + fat
+//void init_wl_fat_vfs()
+//{
+//	ESP_LOGI(TAG, "Mounting FAT filesystem");
+//	// To mount device we need name of device partition, define base_path
+//	// and allow format partition in case if it is new one and was not formatted before
+//	const esp_vfs_fat_mount_config_t mount_config = {};
+//	memset(&mount, 0, sizeof(wifi_config_t));
+//			.max_files = 4,
+//			.format_if_mount_failed = true,
+//			.allocation_unit_size = CONFIG_WL_SECTOR_SIZE
+//	};
+//
+//	esp_err_t err = esp_vfs_fat_spiflash_mount(base_path, "storage", &mount_config, &s_wl_handle);
+//	if (err != ESP_OK) {
+//		ESP_LOGE(TAG, "Failed to mount FATFS (%s)", esp_err_to_name(err));
+//		return;
+//	}
+//}
+////// end functions storage wear leveling + fat
+//// end functions storage
 
 
 //// functions wi-fi
