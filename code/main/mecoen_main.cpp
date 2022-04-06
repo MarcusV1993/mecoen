@@ -9,7 +9,11 @@
 /*
  * References:
  ** ADC: Previous project from Prof. Alberto Ferreira
+ ** Wi-Fi AP: https://github.com/espressif/esp-idf/tree/master/examples/wifi/getting_started/softAP
+ ** Wi-Fi Station: https://github.com/espressif/esp-idf/tree/master/examples/wifi/getting_started/station
  ** Web server: https://github.com/caiomb/esp32-http_webserver
+ ** NTP: https://github.com/espressif/esp-idf/tree/master/examples/protocols/sntp
+ ** I2C (DS3231): https://github.com/UncleRus/esp-idf-lib/tree/master/examples/ds3231
  ** FFT: https://github.com/espressif/esp-dsp/blob/master/examples/fft/main/dsps_fft_main.c
 */
 
@@ -34,9 +38,11 @@
 #include "esp_system.h"
 ////// end includes esp-idf system
 
+
 ////// includes esp -idf error handling
 #include "esp_err.h"
 ////// end includes esp -idf error handling
+
 
 ////// includes esp-idf freeRTOS
 #include "freertos/FreeRTOS.h"
@@ -44,6 +50,7 @@
 #include "freertos/semphr.h"
 #include "freertos/task.h"
 ////// end includes esp-idf freeRTOS
+
 
 ////// includes -esp-idf time
 #include "esp_timer.h"
@@ -54,11 +61,13 @@
 //////// end includes esp-idf time ntp
 ////// end includes -esp-idf time
 
+
 ////// includes esp-idf ADC
 #include "esp_adc_cal.h"
 #include "driver/adc.h"
 #include "driver/gpio.h"
 ////// end includes esp-idf ADC
+
 
 ////// includes esp-idf storage
 #include "nvs_flash.h"
@@ -66,11 +75,16 @@
 #include "esp_vfs_fat.h"
 ////// end includes esp-idf storage
 
+
 ////// includes esp-idf wi-fi
 #include "esp_wifi.h"
 
 #include "lwip/err.h"
 #include "lwip/sys.h"
+
+//////// includes esp-idf wi-fi library for web server
+#include "lwip/api.h"
+//////// includes esp-idf wi-fi library for web server
 ////// end includes esp-idf wi-fi
 //// end includes esp-idf libraries
 
@@ -79,21 +93,23 @@
 #include "ds3231.h"
 //// end includes esp-lib
 
+
 //// includes esp-dsp
 #include "esp_dsp.h" // https://github.com/espressif/esp-dsp
 //// end includes esp-dsp
-// end includes
 
+//// includes project headers
 //#include "mecoen_adc.h"
 //#include "mecoen_wifi.h"
-#include "server.h"
+//#include "server.h"
 //#include "mecoen_commons.h"
 #include "mecoen_definitions.h"
 //#include "mecoen_fft.h"
 //#include "mecoen_time.h"
 //#include "mecoen_i2c.h"
 //#include "mecoen_storage.h"
-
+//// end includes project headers
+// end includes
 
 // const
 //// const ADC
@@ -136,6 +152,11 @@ static const char *TAG_WIFI = "wifi ap + station";
 //// const storage
 const char *base_path = "/mecoen"; // Mount path for the partition
 //// end const storage
+
+
+//// const web server
+const static char http_html_hdr[] = "HTTP/1.1 200 OK\r\nContent-type: text/html\r\n\r\n";
+//// end const web server
 // end const
 
 
@@ -189,6 +210,22 @@ i2c_dev_t dev;
 __attribute__((aligned(16)))
 float wind[N_ARRAY_LENGTH];
 //// end global variables FFT
+
+
+//// global variables web server
+static char http_index_html_server[] = "\
+<html>\
+<body>\
+<center><h1>Projeto de Graduacao em Engenharia Eletrica com Enfase em Eletronica e Sistemas</h1></center>\
+<center><h1>Medidor de Consumo de Energia Eletrica Domestico de Tempo Real com Interface Via Aplicativo Web</h1></center>\
+<center>Count #                                                                                                 </center>\
+<center>#                                                                                                       </center>\
+<center>#                                                                                                       </center>\
+</body>\
+</html>";
+
+char message[100];
+//// end global variables web server
 // end global variables
 
 
@@ -834,6 +871,63 @@ printf("Init end\n");
 //    vEventGroupDelete(s_wifi_event_group);
 }
 //// end functions wi-fi
+
+
+//// functions web server
+static void
+http_server_netconn_serve(struct netconn *conn)
+{
+    struct netbuf *inbuf;
+    err_t err;
+    err = netconn_recv(conn, &inbuf);
+    if (err == ERR_OK)
+    {
+        char *output = strstr(http_index_html_server, "#");
+        static int count = 0;
+        sprintf(message, "%d", count++);
+		strcpy(output + 1, message);
+		output[strlen(message) + 1] = ';';
+
+		output = strstr(output + 1, "#");
+        sprintf(message, "Vrms = %07.2f", phase_a.voltage.rms_previous);
+        strcpy(output + 1, message);
+        output[strlen(message) + 1] = ';';
+
+        output = strstr(output + 1, "#");
+        sprintf(message, "Vrms = %07.2f", phase_a.current.rms_previous);
+		strcpy(output + 1, message);
+		output[strlen(message) + 1] = '.';
+
+        netconn_write(conn, http_html_hdr, sizeof(http_html_hdr)-1, NETCONN_NOCOPY);
+        netconn_write(conn, http_index_html_server, sizeof(http_index_html_server)-1, NETCONN_NOCOPY);
+    }
+    netconn_close(conn);
+    netbuf_delete(inbuf);
+}
+
+
+void
+http_server(void *pvkeys)
+{
+    struct netconn *conn, *newconn;
+    err_t err;
+    conn = netconn_new(NETCONN_TCP);
+    netconn_bind(conn, NULL, 80);
+    netconn_listen(conn);
+
+    do {
+        err = netconn_accept(conn, &newconn);
+        if (err == ERR_OK)
+        {
+            http_server_netconn_serve(newconn);
+            netconn_delete(newconn);
+        }
+    } while(err == ERR_OK);
+
+    netconn_close(conn);
+    netconn_delete(conn);
+}
+//// end functions web server
 
 
 //// functions i2c
