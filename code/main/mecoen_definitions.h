@@ -15,45 +15,93 @@
 #include "freertos/semphr.h"
 
 
-// Array size
+/**********************************************************************/
+// definitions
+//// definitions common
 #define N_ARRAY_LENGTH 2048
-const int N_ARRAY_LENGTH2 = 2 * N_ARRAY_LENGTH;
+#define REASON 4
+//// end definitions common
 
-//// ADC definitions
+
+//// definitions ADC
+////// definitions ADC peripheral reference voltage
+#define DEFAULT_VREF    1100        //Use adc2_vref_to_gpio() to obtain a better estimate
+////// end definitions ADC peripheral reference voltage
+
+////// definitions ADC sampling
 #define SAMPLING_FREQUENCY 2500
-//// Initial DC value for ADC readings
-#define ZMPT101B_VDC 1211.8
-#define   SCT013_VDC 1257.45
+#define NO_OF_SAMPLES   8          //Multisampling
+////// end definitions ADC sampling
 
+////// definitions ADC voltage sensor parameters
+#define ZMPT101B_VCC            3.3
+#define ZMPT101B_R1			   9840 // 10k
+#define ZMPT101B_R2			   9970 // 10k
+
+#define ZMPT101B_VMAX		 0.8202 // Calibrar
+////// end definitions ADC voltage sensor parameters
+
+////// definitions ADC current sensor parameters
+#define SCT013_VCC 				3.3
+#define SCT013_NUMBER_TURNS    2000
+#define SCT013_BURDEN_RESISTOR  466 // 470
+#define SCT013_R1             21700 // 22k
+#define SCT013_R2              9870 // 10k
+////// end definitions ADC current sensor parameters
+
+////// definitions ADC Vdc equivalent 0 V or 0 A
+#define ZMPT101B_VDC 419
+#define   SCT013_VDC 504
+////// end definitions ADC Vdc equivalent 0 V or 0 A
+
+////// definitions ADC conversion rates to real world values
 #define ZMPT101B_CONSTANT_MULTIPLIER 0.60595
 #define SCT013_CONSTANT_MULTIPLIER 0.00932
-//// end Initial DC value for ADC readings
-const int SAMPLING_FREQUENCY2 = 2 * SAMPLING_FREQUENCY;
+////// end definitions ADC conversion rates to real world values
+//// end definitions ADC
 
-//// to save moving average
-extern float zmpt101b_vdc;
-extern float  sct013_vdc;
-////end to save moving average
-// end ADC definitions
 
-//// storage
-// storage time
+//// definitions storage
+////// definitions storage time
 #define STORAGE_PERIOD 5 // minutes
 #define STORAGE_MAINTAIN 63 // days
+////// end definitions storage time
+//// end definitions storage
+// end definitions
+
+
+/**********************************************************************/
+// consts
+//// consts common
+const int N_ARRAY_LENGTH2 = 2 * N_ARRAY_LENGTH;
+//// end consts common
+
+
+//// consts ADC
+////// consts ADC sampling
+const int SAMPLING_FREQUENCY2 = 2 * SAMPLING_FREQUENCY;
+////// end consts ADC sampling
+//// end consts ADC
+
+
+//// consts storage
 static const int storage_period_s = STORAGE_PERIOD * 60;
-// end storage time
-//// end storage
+//// end consts storage
+// end consts
 
 
+/**********************************************************************/
 // structures
-// Structure to store magnitude and phase of a signal
+//// structure to store magnitude and phase of a signal
 typedef struct Mag_phase
 {
 	float mag;
 	float phase_max_mag;
 } Mag_phase;
+//// end structure to store magnitude and phase of a signal
 
-// Structure to store signal readings, as well as it's Root Mean Squared value, and the array for FFT calculations
+
+//// structure to store signal readings, as well as it's Root Mean Squared value, and the array for FFT calculations
 typedef struct Signal
 {
 	float samples[N_ARRAY_LENGTH];
@@ -71,15 +119,27 @@ typedef struct Signal
 //	__attribute__((aligned(16)))
 //	float sum_y[SAMPLING_FREQUENCY/2];
 } Signal;
+//// end structure to store signal readings, as well as it's Root Mean Squared value, and the array for FFT calculations
 
-// Structure for voltage and current readings in a phase of the circuit
-// Variables to store power of the phase
+
+//// structure for voltage and current readings in a phase of the circuit, and phase power calculation results
 typedef struct Circuit_phase
 {
 	Signal voltage, current, power;
 	float power_apparent, power_active, power_reactive, power_factor, freq;
 } Circuit_phase;
+//// end structure for voltage and current readings in a phase of the circuit, and phase power calculation results
 // end structures
+
+
+
+/**********************************************************************/
+// ADC variables
+//// to save moving average
+extern float zmpt101b_vdc;
+extern float  sct013_vdc;
+////end to save moving average
+// end ADC variables
 
 
 // Task sincronization variables

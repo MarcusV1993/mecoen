@@ -30,7 +30,7 @@ static const float signal_to_rms = 1 / (SAMPLING_FREQUENCY * SAMPLING_PERIOD_US)
 static esp_adc_cal_characteristics_t *adc_chars;
 static const adc_channel_t channel_v = ADC_CHANNEL_6;     // GPIO34
 static const adc_channel_t channel_i = ADC_CHANNEL_7;	  // GPIO35
-static const adc_atten_t atten = ADC_ATTEN_DB_11; // max = 3.9V -> https://docs.espressif.com/projects/esp-idf/en/latest/api-reference/peripherals/adc.html
+static const adc_atten_t atten = ADC_ATTEN_DB_0; // max = 3.9V -> https://docs.espressif.com/projects/esp-idf/en/latest/api-reference/peripherals/adc.html
 static const adc_unit_t unit = ADC_UNIT_1;
 // end ADC ports and configuration
 
