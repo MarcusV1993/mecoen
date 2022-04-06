@@ -74,6 +74,29 @@
 //// end definitions ADC
 
 
+//// definitions wi-fi
+////// definitions wi-fi AP default configuration
+#define MECOEN_WIFI_AP_SSID      "mecoen"
+#define MECOEN_WIFI_AP_PASS      "12345678"
+#define MECOEN_WIFI_AP_CHANNEL   9 // 1 - 13
+#define MECOEN_WIFI_AP_MAX_STA_CONN       5
+////// end definitions wi-fi AP default configuration
+
+////// definitions wi-fi STA default configuration
+// To-do: Configure for UTF characters
+#define MECOEN_WIFI_STA_SSID      "Goncalves_2g" /*"POCO X3 Pro"*/
+#define MECOEN_WIFI_STA_PASS      "3NMLWWXFFW"
+#define MECOEN_WIFI_MAXIMUM_RETRY  5
+
+/* The event group allows multiple bits for each event, but we only care about two events:
+ * - we are connected to the AP with an IP
+ * - we failed to connect after the maximum amount of retries */
+#define WIFI_CONNECTED_BIT BIT0
+#define WIFI_FAIL_BIT      BIT1
+////// end definitions wi-fi STA default configuration
+//// end definitions wi-fi
+
+
 //// definitions storage
 ////// definitions storage time
 #define STORAGE_PERIOD 5 // minutes
@@ -125,8 +148,8 @@ typedef struct Signal
 	__attribute__((aligned(16)))
 	float y_cf[N_ARRAY_LENGTH2];
 	// Pointers to result arrays
-	float* y1_cf = &y_cf[0];
-	float* y2_cf = &y_cf[N_ARRAY_LENGTH];
+	float *y1_cf = &y_cf[0];
+	float *y2_cf = &y_cf[N_ARRAY_LENGTH];
 	Mag_phase mag_phase;
 	// Sum of y1 and y2
 //	__attribute__((aligned(16)))
