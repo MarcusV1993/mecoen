@@ -10,9 +10,8 @@
 
 #include <stdint.h>
 
-#include "freertos/FreeRTOS.h"
-//#include "freertos/task.h"
-#include "freertos/semphr.h"
+//#include "freertos/FreeRTOS.h"
+//#include "freertos/queue.h"
 #include "driver/adc.h"
 #include "driver/gpio.h"
 
@@ -20,7 +19,8 @@
 /**********************************************************************/
 // definitions
 //// definitions common
-#define N_ARRAY_LENGTH 2048
+#define N_POWER_OF_TWO 11 // (N_ARRAY_LENGTH = 2^11 = 2048)
+#define N_ARRAY_LENGTH (1 << N_POWER_OF_TWO) // Must be power of 2
 #define REASON 4
 //// end definitions common
 
@@ -162,6 +162,14 @@ typedef struct Circuit_phase
 	float power_apparent, power_active, power_reactive, power_factor, freq;
 } Circuit_phase;
 //// end structure for voltage and current readings in a phase of the circuit, and phase power calculation results
+
+
+//// structure for ADC reading in interrupt
+typedef struct
+{
+	int *readings, *sample_num;
+} Adc_interrupt_data_struct;
+//// end structure for ADC reading in interrupt
 // end structures
 
 #endif /* MAIN_DEFINITIONS_H_ */
