@@ -1383,7 +1383,7 @@ integration (float **array, int array_length, integration_type type, float *volt
 
 	switch(type)
 	{
-		case rectangle: // Rimann sum rectangle
+		case rectangle: // Riemann sum rectangle
 			for (int i = 1; i < array_length; i++)
 			{
 				*voltage_out += squared(array[i][0]);
@@ -1401,8 +1401,8 @@ integration (float **array, int array_length, integration_type type, float *volt
 				*current_out += 2 * squared(array[i][1]);
 			}
 
-			*voltage_out += squared(array[array_length][0]);
-			*current_out += squared(array[array_length][1]);
+			*voltage_out += squared(array[array_length - 1][0]);
+			*current_out += squared(array[array_length - 1][1]);
 
 			// For RMS calculation will be divided by period, canceling the sampling_period_us
 			//*voltage_out *= sampling_period_s / 2;
@@ -1441,12 +1441,12 @@ integration (float **array, int array_length, integration_type type, float *volt
 			*current_out /= 3;
 			// end Simpson Method
 
-			// Last point considering Reimann sums rectangle
+			// Last point considering Reimann sums trapezoidal
 			// For RMS calculation will be divided by period, canceling the sampling_period_us
-			//*voltage_out += squared(array[array_length - 2][0]) * sampling_period_s;
-			//*current_out += squared(array[array_length - 2][1]) * sampling_period_s;
-			*voltage_out += squared(array[array_length - 2][0]);
-			*current_out += squared(array[array_length - 2][1]);
+			//*voltage_out += (squared(array[array_length - 2][0]) + squared(array[array_length - 1][0])) * (sampling_period_s / 2);
+			//*current_out += (squared(array[array_length - 2][1]) + squared(array[array_length - 1][1])) * (sampling_period_s / 2);
+			*voltage_out += (squared(array[array_length - 2][0]) + squared(array[array_length - 1][0])) / 2;
+			*current_out += (squared(array[array_length - 2][1]) + squared(array[array_length - 1][1])) / 2;
 			break;
 
 		default:
@@ -1455,6 +1455,78 @@ integration (float **array, int array_length, integration_type type, float *volt
 	}
 
 	return status;
+}
+
+void integration_riemann_rectangle(float **array, int array_length, float *voltage_out, float *current_out)
+{
+	*voltage_out = 0;
+	*current_out = 0;
+
+	for (int i = 1; i < array_length; i++)
+	{
+		*voltage_out += squared(array[i][0]);
+		*current_out += squared(array[i][1]);
+	}
+	// For RMS calculation will be divided by period, canceling the sampling_period_us
+	//*voltage_out *= sampling_period_s;
+	//*current_out *= sampling_period_s;
+}
+
+void integration_riemann_trapezoidal(float **array, int array_length, float *voltage_out, float *current_out)
+{
+	*voltage_out = squared(array[0][0]) + squared(array[array_length - 1][0]);
+	*current_out = squared(array[0][1]) + squared(array[array_length - 1][1]);
+
+	for (int i = 1; i < array_length - 1; i++)
+	{
+		*voltage_out += 2 * squared(array[i][0]);
+		*current_out += 2 * squared(array[i][1]);
+	}
+
+	// For RMS calculation will be divided by period, canceling the sampling_period_us
+	//*voltage_out *= sampling_period_s / 2;
+	//*current_out *= sampling_period_s / 2;
+	*voltage_out /= 2;
+	*current_out /= 2;
+}
+
+void integration_simpson(float **array, int array_length, float *voltage_out, float *current_out)
+{
+	// Requires even number of intervals, meaning array length with odd value and greater than 3
+	// Array length has size 2^N, N integer, meaning even
+	// Consider array length - 1 for Simpson and add last point considering Riemann sum trapezoidal
+	// Initialize with first and second values of simpson method
+	// initial value = 1st simpson      +         2nd simpson        + 	  last value or simpson (N - 2)
+	*voltage_out = squared(array[0][0]) + (4 * squared(array[1][0])) + squared(array[array_length - 2][0]);
+	*current_out = squared(array[0][1]) + (4 * squared(array[1][1])) + squared(array[array_length - 2][1]);
+
+	for (int i = 2; i < array_length - 2; )
+	{
+		// Even positions
+		*voltage_out += 2 * squared(array[i][0]);
+		*current_out += 2 * squared(array[i][1]);
+
+		i++;
+
+		// Odd positions
+		*voltage_out += 4 * squared(array[i][0]);
+		*current_out += 4 * squared(array[i][1]);
+
+		i++;
+	}
+
+	// For RMS calculation will be divided by period, canceling the sampling_period_us
+	//*voltage_out *= sampling_period_s / 3;
+	//*current_out *= sampling_period_s / 3;
+	*voltage_out /= 3;
+	*current_out /= 3;
+
+	// Last point considering Reimann Trapezoidal sum
+	// For RMS calculation will be divided by period, canceling the sampling_period_us
+	//*voltage_out += (squared(array[array_length - 2][0]) + squared(array[array_length - 1][0])) * (sampling_period_s / 2);
+	//*current_out += (squared(array[array_length - 2][1]) + squared(array[array_length - 1][1])) * (sampling_period_s / 2);
+	*voltage_out += (squared(array[array_length - 2][0]) + squared(array[array_length - 1][0])) / 2;
+	*current_out += (squared(array[array_length - 2][1]) + squared(array[array_length - 1][1])) / 2;
 }
 //// end functions integration
 // end functions
@@ -1560,7 +1632,7 @@ void app_main()
 		for (int i = 0; i < N_ARRAY_LENGTH / REASON; i++)
 		{
 			phase_a.voltage.rms += squared(phase_copy[i][0]);
-			phase_a.current.rms += squared(phase_copy[i][0]);
+			phase_a.current.rms += squared(phase_copy[i][1]);
 		}
 //		phase_a.voltage.rms *= sampling_period_s;
 //		phase_a.current.rms *= sampling_period_s;
