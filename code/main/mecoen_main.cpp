@@ -1389,8 +1389,9 @@ integration (float **array, int array_length, integration_type type, float *volt
 				*voltage_out += squared(array[i][0]);
 				*current_out += squared(array[i][1]);
 			}
-			*voltage_out *= sampling_period_s;
-			*current_out *= sampling_period_s;
+			// For RMS calculation will be divided by period, canceling the sampling_period_us
+			//*voltage_out *= sampling_period_s;
+			//*current_out *= sampling_period_s;
 			break;
 
 		case trapezoidal: // Riemann sum trapezoidal
@@ -1403,8 +1404,11 @@ integration (float **array, int array_length, integration_type type, float *volt
 			*voltage_out += squared(array[array_length][0]);
 			*current_out += squared(array[array_length][1]);
 
-			*voltage_out *= sampling_period_s / 2;
-			*current_out *= sampling_period_s / 2;
+			// For RMS calculation will be divided by period, canceling the sampling_period_us
+			//*voltage_out *= sampling_period_s / 2;
+			//*current_out *= sampling_period_s / 2;
+			*voltage_out /= 2;
+			*current_out /= 2;
 			break;
 
 		case simpson: // Simpson Method
@@ -1430,13 +1434,19 @@ integration (float **array, int array_length, integration_type type, float *volt
 			*voltage_out += squared(array[array_length - 2][0]);
 			*current_out += squared(array[array_length - 2][1]);
 
-			*voltage_out *= sampling_period_s / 3;
-			*current_out *= sampling_period_s / 3;
+			// For RMS calculation will be divided by period, canceling the sampling_period_us
+			//*voltage_out *= sampling_period_s / 3;
+			//*current_out *= sampling_period_s / 3;
+			*voltage_out /= 3;
+			*current_out /= 3;
 			// end Simpson Method
 
 			// Last point considering Reimann sums rectangle
-			*voltage_out += squared(array[array_length - 2][0]) / sampling_period_s;
-			*current_out += squared(array[array_length - 2][1]) / sampling_period_s;
+			// For RMS calculation will be divided by period, canceling the sampling_period_us
+			//*voltage_out += squared(array[array_length - 2][0]) * sampling_period_s;
+			//*current_out += squared(array[array_length - 2][1]) * sampling_period_s;
+			*voltage_out += squared(array[array_length - 2][0]);
+			*current_out += squared(array[array_length - 2][1]);
 			break;
 
 		default:
