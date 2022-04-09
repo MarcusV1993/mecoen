@@ -18,6 +18,15 @@
 
 /**********************************************************************/
 // definitions
+//// definitions macros
+#define squared(x) ((x) * (x))
+//// end definitions macros
+
+//// definitions enums
+enum integration_type{rectangle = 0, trapezoidal = 1, simpson = 2};
+//// end definitions enums
+
+
 //// definitions common
 #define N_POWER_OF_TWO 11 // (N_ARRAY_LENGTH = 2^11 = 2048)
 #define N_ARRAY_LENGTH (1 << N_POWER_OF_TWO) // Must be power of 2

@@ -164,9 +164,9 @@
 // const
 //// const ADC
 ////// const ADC period
-static constexpr int32_t SAMPLING_PERIOD_US = 1e6 / SAMPLING_FREQUENCY; // Real sampling frequency slightly lower than 1e6/SAMPLING_PERIOD_US
+static constexpr float sampling_period_s = 1 / SAMPLING_FREQUENCY;
+static constexpr int SAMPLING_PERIOD_US = (1e6 / SAMPLING_FREQUENCY) / 5; // Real sampling frequency slightly lower than 1e6/SAMPLING_PERIOD_US
 static constexpr float sampling_frequency = 1e6 / SAMPLING_PERIOD_US;
-static constexpr float signal_to_rms = 1 / (SAMPLING_FREQUENCY * SAMPLING_PERIOD_US);
 ////// end const ADC period
 
 ////// const ADC ports and configuration
@@ -627,7 +627,7 @@ read_phase(void *arg)
 
 /*****************************************************************************************************************************/
 void
-adc_read_interrupt(adc_channel_t channel_v1, adc_channel_t channel_i1, int *readings)
+adc_read_interwoven(adc_channel_t channel_v1, adc_channel_t channel_i1, int *readings)
 {
 /*
  * Makes multi-sampling readings of the voltage and current inputs, and returns the sum of the samples in "readings" array
@@ -640,15 +640,12 @@ adc_read_interrupt(adc_channel_t channel_v1, adc_channel_t channel_i1, int *read
 	readings[0] = 0;
 	readings[1] = 0;
 
-readings[0] = 200;
-readings[0] = 400;
-
 	// Multisampling
-//	for (int i = 0; i < NO_OF_SAMPLES; i++)
-//	{
-//		readings[0] += adc1_get_raw((adc1_channel_t) channel_v1);
-//		readings[1] += adc1_get_raw((adc1_channel_t) channel_i1);
-//	}
+	for (int i = 0; i < NO_OF_SAMPLES; i++)
+	{
+		readings[0] += adc1_get_raw((adc1_channel_t) channel_v1);
+		readings[1] += adc1_get_raw((adc1_channel_t) channel_i1);
+	}
 }
 
 
@@ -669,7 +666,7 @@ read_phase2(void *arg)
 	for (sample_num = 0; sample_num < N_ARRAY_LENGTH; sample_num++)
 	{
 		// Reading ADC
-		adc_read_interrupt(channel_v, channel_i, readings);
+		adc_read_interwoven(channel_v, channel_i, readings);
 		//Convert adc_reading to voltage in mV
 		phase->voltage.samples[sample_num] = (float) esp_adc_cal_raw_to_voltage((uint32_t) (readings[0] / NO_OF_SAMPLES), adc_chars);
 		phase->current.samples[sample_num] = (float) esp_adc_cal_raw_to_voltage((uint32_t) (readings[1] / NO_OF_SAMPLES), adc_chars);
@@ -692,7 +689,7 @@ read_phase2(void *arg)
 		sct013_vdc -= phase->current.samples[sample_num] / N_ARRAY_LENGTH;
 
 //		Reading ADC
-		adc_read_interrupt(channel_v, channel_i, readings);
+		adc_read_interwoven(channel_v, channel_i, readings);
 		//Convert adc_reading to voltage in mV
 		phase->voltage.samples[sample_num] = (float) esp_adc_cal_raw_to_voltage(readings[0] / NO_OF_SAMPLES, adc_chars);
 		phase->current.samples[sample_num] = (float) esp_adc_cal_raw_to_voltage(readings[1] / NO_OF_SAMPLES, adc_chars);
@@ -725,24 +722,12 @@ read_phase2(void *arg)
 static bool IRAM_ATTR adc_read_gptimer(gptimer_handle_t timer, const gptimer_alarm_event_data_t *edata, void *user_data)
 {
     BaseType_t high_task_awoken = pdFALSE;
-    int *readings = ((Adc_interrupt_data_struct *) user_data)->readings;
-    int *sample =  ((Adc_interrupt_data_struct *) user_data)->sample_num;
-
-	readings[0] = 0;
-	readings[1] = 0;
-
-	// Multisampling
-	for (int i = 0; i < NO_OF_SAMPLES; i++)
-	{
-		readings[0] += adc1_get_raw((adc1_channel_t) channel_v);
-		readings[1] += adc1_get_raw((adc1_channel_t) channel_i);
-	}
-
-	(*sample)++;
 
     xSemaphoreGiveFromISR(semaphore_adc_interrupt, &high_task_awoken);
 
-    return pdTRUE;//(high_task_awoken == pdTRUE);
+    portYIELD_FROM_ISR( high_task_awoken );
+
+    return (high_task_awoken == pdTRUE);
 }
 
 
@@ -762,12 +747,7 @@ printf("read_phase_gptimer\n");
 	int readings[2];
 	int sample_num = 0;
 
-	Adc_interrupt_data_struct adc_interrupt_data_struct = {
-			.readings = readings,
-			.sample_num = &sample_num
-	};
-
-	// Calculate the average DC value of each sensor
+	//// Calculate the average DC value of each sensor
 	for (sample_num = 0; sample_num < N_ARRAY_LENGTH; sample_num++)
 	{
 		//Convert adc_reading to voltage in mV
@@ -775,7 +755,7 @@ printf("read_phase_gptimer\n");
 		phase->current.samples[sample_num] = (float) esp_adc_cal_raw_to_voltage(get_adc1_value(channel_i), adc_chars);
 		zmpt101b_vdc2 += phase->voltage.samples[sample_num];
 		sct013_vdc2 += phase->current.samples[sample_num];
-		delayMicroseconds(1000);
+		delayMicroseconds(SAMPLING_PERIOD_US);
 	}
 	zmpt101b_vdc2 /= N_ARRAY_LENGTH;
 	sct013_vdc2 /= N_ARRAY_LENGTH;
@@ -784,13 +764,15 @@ printf("read_phase_gptimer\n");
 	zmpt101b_vdc = zmpt101b_vdc2;
 	sct013_vdc = sct013_vdc2;
 
+	//// end Calculate the average DC value of each sensor
+
 	// Initialize semaphore to interact with the function called by interrupt
-printf("\nInitialize semaphore\n");
+//printf("\nInitialize semaphore\n");
 	semaphore_adc_interrupt = xSemaphoreCreateBinary();
-printf("\nInitialized semaphore\n");
+//printf("\nInitialized semaphore\n");
 
 	// timer set up
-printf("\nCreate timer handle\n");
+//printf("\nCreate timer handle\n");
 	ESP_LOGI(TAG_TIMER, "Create timer handle");
 	gptimer_handle_t gptimer = NULL;
 	gptimer_config_t timer_config = {
@@ -802,34 +784,35 @@ printf("\nCreate timer handle\n");
 		}
 	};
 	ESP_ERROR_CHECK(gptimer_new_timer(&timer_config, &gptimer));
-printf("\nCreated timer handle\n");
+//printf("\nCreated timer handle\n");
 
 	// timer set function
-printf("\nSet timer function\n");
+//printf("\nSet timer function\n");
 	gptimer_event_callbacks_t cbs = {
 		.on_alarm = adc_read_gptimer
 	};
-	ESP_ERROR_CHECK(gptimer_register_event_callbacks(gptimer, &cbs, &adc_interrupt_data_struct));
-printf("\ntimer function set\n");
+	ESP_ERROR_CHECK(gptimer_register_event_callbacks(gptimer, &cbs, NULL));
+//printf("\ntimer function set\n");
 	// alarm configuration
-printf("\nset alarm config\n");
+//printf("\nset alarm config\n");
 	gptimer_alarm_config_t alarm_config = {
-		.alarm_count = (uint64_t) (SAMPLING_PERIOD_US / 5),
-		.reload_count = (uint64_t) N_ARRAY_LENGTH,
+		.alarm_count = (uint64_t) (SAMPLING_PERIOD_US), // period
+		.reload_count = 0, // counter will reload with 0 on alarm event
 		.flags = {
-			.auto_reload_on_alarm = 1
+			.auto_reload_on_alarm = 1 // enable auto-reload
 		}
 	};
 	ESP_ERROR_CHECK(gptimer_set_alarm_action(gptimer, &alarm_config));
-printf("\nalarm config set\n");
+//printf("\nalarm config set\n");
 	// end timer set up
-int cycle = 0;
+//int cycle = 0;
 	while(1)
 	{
-printf("\nread_adc_gptimer cycle %08d\n", ++cycle);
+//printf("\nread_adc_gptimer cycle %08d\n", ++cycle);
         vTaskDelayUntil( &xLastWakeTime, 1000 / portTICK_PERIOD_MS); // Wait 1 s since last called
-printf("\nvtaskdelay\n");
+//printf("\nvtaskdelay\n");
         xLastWakeTime = xTaskGetTickCount();
+//printf("\nget tick count\n");
 
         // Semaphore
 //        xSemaphoreGive(semaphore_adc_interrupt);
@@ -839,20 +822,21 @@ printf("\nvtaskdelay\n");
 
         // Reset and restart timer
 		ESP_ERROR_CHECK(gptimer_set_raw_count(gptimer, 0));
-printf("\ntimer set raw\n");
+//printf("\ntimer set raw\n");
 esp_err_t ret;
 ret = gptimer_start(gptimer);
-printf(esp_err_to_name(ret));
+//printf("%d\n",ret);
 		ESP_ERROR_CHECK(ret);
-printf("\nTimer Restart\n");
+//printf("\nTimer Restart\n");
 
 		sample_num = 0;
 		while (sample_num < N_ARRAY_LENGTH)
 		{
-printf("\nsem\n");
+//printf("\nsem\n");
 			// Wait for semaphoregive from adc interrupt reading
 			xSemaphoreTake(semaphore_adc_interrupt, 10 / portTICK_PERIOD_MS);
 
+			adc_read_interwoven(channel_v, channel_i, readings);
 			// Remove last read value from moving average DC
 //			zmpt101b_vdc2 -= phase->voltage.samples[sample_num] / N_ARRAY_LENGTH;
 //			sct013_vdc2 -= phase->current.samples[sample_num] / N_ARRAY_LENGTH;
@@ -878,6 +862,8 @@ printf("\nsem\n");
 			// Convert to real world value
 //			phase->voltage.samples[sample_num] *= ZMPT101B_CONSTANT_MULTIPLIER;
 //			phase->current.samples[sample_num] *= SCT013_CONSTANT_MULTIPLIER;
+
+			sample_num++;
 		}
 
 		// Stop timer
@@ -1378,6 +1364,89 @@ fft_continuous(void *arg)
 	}
 }
 //// functions FFT
+
+
+//// functions integration
+bool
+integration (float **array, int array_length, integration_type type, float *voltage_out, float *current_out)
+{
+/*
+ * Type:
+ * 		0: Riemann sum rectangle
+ * 		1: Riemann sum trapezoidal
+ * 		2: Simpson Method
+*/
+	bool status = true;
+
+	*voltage_out = squared(array[0][0]);
+	*current_out = squared(array[0][1]);
+
+	switch(type)
+	{
+		case rectangle: // Rimann sum rectangle
+			for (int i = 1; i < array_length; i++)
+			{
+				*voltage_out += squared(array[i][0]);
+				*current_out += squared(array[i][1]);
+			}
+			*voltage_out *= sampling_period_s;
+			*current_out *= sampling_period_s;
+			break;
+
+		case trapezoidal: // Riemann sum trapezoidal
+			for (int i = 1; i < array_length - 1; i++)
+			{
+				*voltage_out += 2 * squared(array[i][0]);
+				*current_out += 2 * squared(array[i][1]);
+			}
+
+			*voltage_out += squared(array[array_length][0]);
+			*current_out += squared(array[array_length][1]);
+
+			*voltage_out *= sampling_period_s / 2;
+			*current_out *= sampling_period_s / 2;
+			break;
+
+		case simpson: // Simpson Method
+			// Requires 2*Nk intervals, meaning array length with odd value and greater than 3
+			// Array length has size 2^N, N integer
+			// Consider array length - 1 for Simpson and add last point considering Riemann sum rectangle
+			*voltage_out += 4 * squared(array[1][0]);
+			*current_out += 4 * squared(array[1][1]);
+			for (int i = 2; i < array_length - 2; )
+			{
+				// Even positions
+				*voltage_out += 2 * squared(array[i][0]);
+				*current_out += 2 * squared(array[i][1]);
+
+				i++;
+
+				// Odd positions
+				*voltage_out += 4 * squared(array[i][0]);
+				*current_out += 4 * squared(array[i][1]);
+
+				i++;
+			}
+			*voltage_out += squared(array[array_length - 2][0]);
+			*current_out += squared(array[array_length - 2][1]);
+
+			*voltage_out *= sampling_period_s / 3;
+			*current_out *= sampling_period_s / 3;
+			// end Simpson Method
+
+			// Last point considering Reimann sums rectangle
+			*voltage_out += squared(array[array_length - 2][0]) / sampling_period_s;
+			*current_out += squared(array[array_length - 2][1]) / sampling_period_s;
+			break;
+
+		default:
+			status = false;
+			break;
+	}
+
+	return status;
+}
+//// end functions integration
 // end functions
 
 
@@ -1438,7 +1507,7 @@ void app_main()
 
 	// Create Tasks
 		// Web server
-	xTaskCreate(&http_server, "http_server", 2048, NULL, 5, NULL);
+	xTaskCreatePinnedToCore(&http_server, "http_server", 2048, NULL, 5, NULL, 1);
 
 		// ADC
 //    xTaskCreatePinnedToCore(read_phase, "read_phase", 2048, &phase_a, 5, &task_adc, 1);
@@ -1455,45 +1524,48 @@ void app_main()
 	// end Create Tasks
 
 	vTaskDelay(500 / portTICK_RATE_MS);
+
     printf("\nMain loop initialized!\n");
     while (1)
     {
-		delayMicroseconds((int) 1e6); // 5 s
-//        vTaskDelay(pdMS_TO_TICKS(5000)); // 5 s
+//		delayMicroseconds((int) 1e6); // 5 s
+      vTaskDelay(pdMS_TO_TICKS(1000)); //  1 s
 
 //		gettimeofday(&now, NULL);
 //		localtime_r(&now.tv_sec, &timeinfo);
 //		strftime(strftime_buf, sizeof(strftime_buf), "%c", &timeinfo);
 //		printf("The current date/time is: %s\n", strftime_buf);
-		phase_a.voltage.rms = 0;
-		phase_a.current.rms = 0;
 
+		// Copy data to copy array
 		for (int i = 0; i < N_ARRAY_LENGTH / REASON; i++)
 		{
 			phase_copy[i][0] = phase_a.voltage.samples[i] - zmpt101b_vdc;
 			phase_copy[i][1] = phase_a.current.samples[i] - sct013_vdc;
-
-//			phase_copy[i][0] = (phase_a.voltage.samples[i] - zmpt101b_vdc) * 0.60595;
-//			phase_copy[i][1] = (phase_a.current.samples[i] - sct013_vdc) * 0.00932;
-
-			phase_a.voltage.rms += phase_copy[i][0] * phase_copy[i][0];
-			phase_a.current.rms += phase_copy[i][1] * phase_copy[i][1];
-
-			phase_copy[i][2] = phase_copy[i][0] * phase_copy[i][1];
 		}
+		// end data copy
 
-		phase_a.voltage.rms = sqrt(phase_a.voltage.rms / (N_ARRAY_LENGTH / REASON) );
-		phase_a.current.rms = sqrt(phase_a.current.rms / (N_ARRAY_LENGTH / REASON) );
-		phase_a.power_apparent = phase_a.voltage.rms * phase_a.current.rms;
-
-//		vTaskDelay(10 / portTICK_RATE_MS);
-
+		// Integration
+		phase_a.voltage.rms = 0;
+		phase_a.current.rms = 0;
 		for (int i = 0; i < N_ARRAY_LENGTH / REASON; i++)
 		{
-			printf("%08.4f %08.4f %08.4f\n", phase_copy[i][0], phase_copy[i][1], phase_copy[i][2]);
-			fflush(stdout);
-			vTaskDelay(10 / portTICK_RATE_MS);
+			phase_a.voltage.rms += squared(phase_copy[i][0]);
+			phase_a.current.rms += squared(phase_copy[i][0]);
 		}
+//		phase_a.voltage.rms *= sampling_period_s;
+//		phase_a.current.rms *= sampling_period_s;
+		// end Integration
+
+		phase_a.voltage.rms = sqrt(phase_a.voltage.rms / (N_ARRAY_LENGTH / REASON));
+		phase_a.current.rms = sqrt(phase_a.current.rms / (N_ARRAY_LENGTH / REASON));
+		phase_a.power_apparent = phase_a.voltage.rms * phase_a.current.rms;
+
+//		for (int i = 0; i < N_ARRAY_LENGTH / REASON; i++)
+//		{
+//			printf("%08.4f %08.4f %08.4f\n", phase_copy[i][0], phase_copy[i][1], phase_copy[i][2]);
+//			fflush(stdout);
+//			vTaskDelay(10 / portTICK_RATE_MS);
+//		}
 		printf("\nVrms = %06.2f; Irms = %06.2f; P = %06.2f\n", phase_a.voltage.rms, phase_a.current.rms, phase_a.power_apparent);
 
 		phase_a.voltage.rms = phase_a.voltage.rms_previous;
