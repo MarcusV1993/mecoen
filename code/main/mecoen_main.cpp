@@ -626,7 +626,7 @@ read_phase(void *arg)
 		}
 		xSemaphoreGive(semaphore_adc_main);
 		vTaskDelay(1);
-		xSemaphoreTake(semaphore_adc_main, ticks_1s);
+		xSemaphoreTake(semaphore_adc, ticks_1s);
 	}
 }
 //// end functions ADC
@@ -1301,8 +1301,8 @@ void app_main()
 	#endif
 
 	//// Initializers Semaphores
-	semaphore_adc_main = xSemaphoreCreateMutex();
-//	semaphore_adc = xSemaphoreCreateBinary();
+	semaphore_adc_main = xSemaphoreCreateBinary();
+	semaphore_adc = xSemaphoreCreateBinary();
 //	semaphore_adc = xSemaphoreCreateMutex();
 //	semaphore_fft = xSemaphoreCreateMutex();
 
@@ -1378,7 +1378,7 @@ void app_main()
 			phase_copy[i][0] = phase_a.voltage.samples[i] - zmpt101b_vdc;
 			phase_copy[i][1] = phase_a.current.samples[i] - sct013_vdc;
 		}
-		xSemaphoreGive(semaphore_adc_main);
+		xSemaphoreGive(semaphore_adc);
 		// end data copy
 
 		// RMS
@@ -1407,6 +1407,6 @@ void app_main()
 
     // Delete Semaphores
     vSemaphoreDelete(semaphore_adc_main);
-//    vSemaphoreDelete(semaphore_adc);
+    vSemaphoreDelete(semaphore_adc);
 //	vSemaphoreDelete(semaphore_fft);
 }
