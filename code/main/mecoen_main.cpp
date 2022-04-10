@@ -190,6 +190,7 @@ static constexpr float sct013_calibration = (SCT013_NUMBER_TURNS / SCT013_BURDEN
 
 //// const time
 static constexpr int ticks_1s = 1000 / portTICK_RATE_MS;
+static constexpr int ticks_10ms = 10 / portTICK_RATE_MS;
 static const char *TAG_TIME = "mecoen_time";
 static const char *TAG_TIMER = "timer";
 //// end const time
@@ -219,6 +220,7 @@ static Circuit_phase phase_a;
 constexpr int n_array_copy_length = N_ARRAY_LENGTH / REASON;
 static float phase_copy[n_array_copy_length][3];
 static int measurements;
+static int adc_readings[N_ARRAY_LENGTH][2];
 
 
 
@@ -656,9 +658,6 @@ adc_read_interwoven(adc_channel_t channel_v1, adc_channel_t channel_i1, int *rea
 		readings[0] += adc1_get_raw((adc1_channel_t) channel_v1);
 		readings[1] += adc1_get_raw((adc1_channel_t) channel_i1);
 	}
-
-	readings[0] /= NO_OF_SAMPLES;
-	readings[1] /= NO_OF_SAMPLES;
 }
 
 
@@ -753,8 +752,7 @@ printf("read_phase_gptimer\n");
 
 	TickType_t xLastWakeTime = xTaskGetTickCount();
 
-	int readings[2];
-	int sample_num = 0;
+	int sample_num = 0, i;
 	float zmpt101b_vdc_local = 0.0, sct013_vdc_local = 0.0;
 
 	// timer set up
@@ -794,20 +792,23 @@ printf("read_phase_gptimer\n");
 
         // Reset and restart timer
 		ESP_ERROR_CHECK(gptimer_set_raw_count(gptimer, 0));
+		sample_num = 0;
 		ESP_ERROR_CHECK(gptimer_start(gptimer));
 
-		measurements = 0;
-		for (sample_num = 0; sample_num < N_ARRAY_LENGTH; sample_num++)
+		while (sample_num < N_ARRAY_LENGTH)
 		{
 			// Wait for task notification from ADC interrupt reading | acts as binary semaphore
-			ulTaskNotifyTakeIndexed(1, pdTRUE, ticks_1s);
+			ulTaskNotifyTakeIndexed(1, pdTRUE, ticks_10ms);
 
-			adc_read_interwoven(channel_v, channel_i, readings);
+			adc_readings[sample_num][0] = adc1_get_raw((adc1_channel_t) channel_v);
+			adc_readings[sample_num][1] = adc1_get_raw((adc1_channel_t) channel_i);
+			for (i = 1; i < NO_OF_SAMPLES; i ++)
+			{
+				adc_readings[sample_num][0] += adc1_get_raw((adc1_channel_t) channel_v);
+				adc_readings[sample_num][1] += adc1_get_raw((adc1_channel_t) channel_i);
+			}
 
-			// Save value to sampling array without any conversions
-			// Has value proportional to NO_OF_SAMPLES
-			phase->voltage.samples[sample_num] = (float) readings[0];
-			phase->current.samples[sample_num] = (float) readings[1];
+			sample_num++;
 		}
 
 		// Stop timer
@@ -817,8 +818,8 @@ printf("read_phase_gptimer\n");
 		sct013_vdc_local   = 0.0;
 		for (sample_num = 0; sample_num < N_ARRAY_LENGTH; sample_num++)
 		{
-			phase->voltage.samples[sample_num] = (float) esp_adc_cal_raw_to_voltage((uint32_t) phase->voltage.samples[sample_num],adc_chars);
-			phase->current.samples[sample_num] = (float) esp_adc_cal_raw_to_voltage((uint32_t) phase->current.samples[sample_num],adc_chars);
+			phase->voltage.samples[sample_num] = (float) esp_adc_cal_raw_to_voltage((uint32_t) adc_readings[sample_num][0] / NO_OF_SAMPLES, adc_chars);
+			phase->current.samples[sample_num] = (float) esp_adc_cal_raw_to_voltage((uint32_t) adc_readings[sample_num][1] / NO_OF_SAMPLES, adc_chars);
 
 			zmpt101b_vdc_local += phase->voltage.samples[sample_num];
 			sct013_vdc_local   += phase->current.samples[sample_num];
@@ -836,7 +837,8 @@ printf("read_phase_gptimer\n");
 		sct013_vdc   =   sct013_vdc_local / N_ARRAY_LENGTH;
 
 		xSemaphoreGive(semaphore_adc_main);
-printf("\n%d\n", measurements);
+		xSemaphoreTake(semaphore_adc, ticks_1s);
+//printf("\n%d\n", measurements);
 	}
 
     ESP_ERROR_CHECK(gptimer_stop(gptimer));
@@ -1445,6 +1447,7 @@ void app_main()
 
 	//// Initializers Semaphores
 	semaphore_adc_main = xSemaphoreCreateBinary();
+	semaphore_adc = xSemaphoreCreateBinary();
 //	semaphore_adc = xSemaphoreCreateMutex();
 //	semaphore_fft = xSemaphoreCreateMutex();
 
@@ -1523,13 +1526,14 @@ void app_main()
 		printf("The current date/time is: %s\n", strftime_buf);
 #endif
 
-		xSemaphoreTake(semaphore_adc_main, ticks_1s);
+		xSemaphoreTake(semaphore_adc_main, 5 * ticks_1s);
 		// Copy data to copy array
 		for (int i = 0; i < n_array_copy_length; i++)
 		{
 			phase_copy[i][0] = phase_a.voltage.samples[i] - zmpt101b_vdc;
 			phase_copy[i][1] = phase_a.current.samples[i] - sct013_vdc;
 		}
+		xSemaphoreGive(semaphore_adc);
 		// end data copy
 
 		// RMS

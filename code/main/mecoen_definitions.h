@@ -154,7 +154,7 @@ typedef struct Mag_phase
 
 
 //// structure to store signal readings, as well as it's Root Mean Squared value, and the array for FFT calculations
-typedef struct Signal
+typedef struct
 {
 	float samples[N_ARRAY_LENGTH];
 	float rms_previous, rms;
@@ -174,6 +174,12 @@ typedef struct Signal
 //// end structure to store signal readings, as well as it's Root Mean Squared value, and the array for FFT calculations
 
 
+typedef struct
+{
+	float apparent, active, reactive, power_factor, frequency;
+} Power;
+
+
 //// structure for voltage and current readings in a phase of the circuit, and phase power calculation results
 typedef struct Circuit_phase
 {
@@ -181,12 +187,6 @@ typedef struct Circuit_phase
 	float power_apparent, power_active, power_reactive, power_factor, freq;
 } Circuit_phase;
 //// end structure for voltage and current readings in a phase of the circuit, and phase power calculation results
-
-
-typedef struct
-{
-	float apparent, active, reactive, power_factor, frequency;
-} Power;
 // end structures
 
 #endif /* MAIN_DEFINITIONS_H_ */
