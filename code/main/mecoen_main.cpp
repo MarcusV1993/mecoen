@@ -535,33 +535,9 @@ init_adc()
 
 
 void
-adc_read_interwoven(adc_channel_t channel_v1, adc_channel_t channel_i1, int *readings)
-{
-/*
- * Makes multi-sampling readings of the voltage and current inputs, and returns the sum of the samples in "readings" array
- * Input: channel_v1: channel of the voltage sensor
- *        channel_i1: channel of the current sensor
- *        readings: pointer in which will be stored the sum of the uint32t readings.
- *        	Even positions store voltage readings
- *        	Odd positions store current readings
- */
-	readings[0] = adc1_get_raw((adc1_channel_t) channel_v1);
-	readings[1] = adc1_get_raw((adc1_channel_t) channel_i1);
-
-	// Multisampling
-	for (int i = 1; i < NO_OF_SAMPLES; i++)
-	{
-		readings[0] += adc1_get_raw((adc1_channel_t) channel_v1);
-		readings[1] += adc1_get_raw((adc1_channel_t) channel_i1);
-	}
-}
-
-
-void
 read_phase(void *arg)
 {
 	printf("\nread_phase initiated!\n");
-	printf("\nticks 1s %d\n", ticks_1s);
 	Circuit_phase *phase = (Circuit_phase *) arg;
 	phase->voltage.rms = phase->voltage.rms_previous = 0.0;
 
@@ -571,7 +547,6 @@ read_phase(void *arg)
 	float sct013_vdc_local = 0.0;
 
 	int readings[2];
-int count = 0;
 	int sample_num = 0;
 
 	// Calculate the average DC value of each sensor
@@ -600,8 +575,19 @@ int count = 0;
 			zmpt101b_vdc_local -= phase->voltage.samples[sample_num] / N_ARRAY_LENGTH;
 			sct013_vdc_local -= phase->current.samples[sample_num] / N_ARRAY_LENGTH;
 
+
 			// Reading ADC
-			adc_read_interwoven(channel_v, channel_i, readings);
+			readings[0] = adc1_get_raw((adc1_channel_t) channel_v);
+			readings[1] = adc1_get_raw((adc1_channel_t) channel_i);
+
+			// Multisampling
+			for (int i = 1; i < NO_OF_SAMPLES; i++)
+			{
+				readings[0] += adc1_get_raw((adc1_channel_t) channel_v);
+				readings[1] += adc1_get_raw((adc1_channel_t) channel_i);
+			}
+			// end Reading ADC
+
 
 			//Convert adc_reading to voltage in mV
 			phase->voltage.samples[sample_num] = (float) esp_adc_cal_raw_to_voltage(readings[0] / NO_OF_SAMPLES, adc_chars);

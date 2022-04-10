@@ -64,7 +64,7 @@ enum integration_type{rectangle = 0, trapezoidal = 1, simpson = 2};
 
 ////// definitions ADC sampling
 #define SAMPLING_FREQUENCY 2500
-#define NO_OF_SAMPLES   3          //Multisampling
+#define NO_OF_SAMPLES   4          //Multisampling
 ////// end definitions ADC sampling
 
 ////// definitions ADC voltage sensor parameters
