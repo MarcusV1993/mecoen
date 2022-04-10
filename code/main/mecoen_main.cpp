@@ -165,7 +165,7 @@
 //// const ADC
 ////// const ADC period
 static constexpr float sampling_period_s = 1 / SAMPLING_FREQUENCY;
-static constexpr int SAMPLING_PERIOD_US = (1e6 / SAMPLING_FREQUENCY) / 5; // Real sampling frequency slightly lower than 1e6/SAMPLING_PERIOD_US
+static constexpr int SAMPLING_PERIOD_US = (1e6 / SAMPLING_FREQUENCY)/* / 5*/; // Real sampling frequency slightly lower than 1e6/SAMPLING_PERIOD_US
 static constexpr float sampling_frequency = 1e6 / SAMPLING_PERIOD_US;
 ////// end const ADC period
 
@@ -189,6 +189,7 @@ static constexpr float sct013_calibration = (SCT013_NUMBER_TURNS / SCT013_BURDEN
 
 
 //// const time
+static constexpr int ticks_1s = 1000 / portTICK_RATE_MS;
 static const char *TAG_TIME = "mecoen_time";
 static const char *TAG_TIMER = "timer";
 //// end const time
@@ -212,8 +213,11 @@ constexpr static char http_html_hdr[] = "HTTP/1.1 200 OK\r\nContent-type: text/h
 
 
 // global variables
-Circuit_phase phase_a;
-float phase_copy[N_ARRAY_LENGTH / REASON][3];
+static Circuit_phase phase_a;
+constexpr int n_array_copy_length = N_ARRAY_LENGTH / REASON;
+static float phase_copy[n_array_copy_length][3];
+static int measurements;
+
 
 
 //// global variables semaphores
@@ -637,11 +641,11 @@ adc_read_interwoven(adc_channel_t channel_v1, adc_channel_t channel_i1, int *rea
  *        	Even positions store voltage readings
  *        	Odd positions store current readings
  */
-	readings[0] = 0;
-	readings[1] = 0;
+	readings[0] = adc1_get_raw((adc1_channel_t) channel_v1);
+	readings[1] = adc1_get_raw((adc1_channel_t) channel_i1);
 
 	// Multisampling
-	for (int i = 0; i < NO_OF_SAMPLES; i++)
+	for (int i = 1; i < NO_OF_SAMPLES; i++)
 	{
 		readings[0] += adc1_get_raw((adc1_channel_t) channel_v1);
 		readings[1] += adc1_get_raw((adc1_channel_t) channel_i1);
@@ -723,9 +727,8 @@ static bool IRAM_ATTR adc_read_gptimer(gptimer_handle_t timer, const gptimer_ala
 {
     BaseType_t high_task_awoken = pdFALSE;
 
+    measurements++;
     xSemaphoreGiveFromISR(semaphore_adc_interrupt, &high_task_awoken);
-
-    portYIELD_FROM_ISR( high_task_awoken );
 
     return (high_task_awoken == pdTRUE);
 }
@@ -809,7 +812,7 @@ printf("read_phase_gptimer\n");
 	while(1)
 	{
 //printf("\nread_adc_gptimer cycle %08d\n", ++cycle);
-        vTaskDelayUntil( &xLastWakeTime, 1000 / portTICK_PERIOD_MS); // Wait 1 s since last called
+        vTaskDelayUntil( &xLastWakeTime, ticks_1s); // Wait until 1 s since last called
 //printf("\nvtaskdelay\n");
         xLastWakeTime = xTaskGetTickCount();
 //printf("\nget tick count\n");
@@ -823,6 +826,7 @@ printf("read_phase_gptimer\n");
         // Reset and restart timer
 		ESP_ERROR_CHECK(gptimer_set_raw_count(gptimer, 0));
 //printf("\ntimer set raw\n");
+		measurements = 0;
 esp_err_t ret;
 ret = gptimer_start(gptimer);
 //printf("%d\n",ret);
@@ -834,7 +838,7 @@ ret = gptimer_start(gptimer);
 		{
 //printf("\nsem\n");
 			// Wait for semaphoregive from adc interrupt reading
-			xSemaphoreTake(semaphore_adc_interrupt, 10 / portTICK_PERIOD_MS);
+			xSemaphoreTake(semaphore_adc_interrupt, 20 / portTICK_PERIOD_MS);
 
 			adc_read_interwoven(channel_v, channel_i, readings);
 			// Remove last read value from moving average DC
@@ -865,7 +869,7 @@ ret = gptimer_start(gptimer);
 
 			sample_num++;
 		}
-
+printf("%d", measurements);
 		// Stop timer
 	    ESP_ERROR_CHECK(gptimer_stop(gptimer));
 	}
@@ -1367,166 +1371,84 @@ fft_continuous(void *arg)
 
 
 //// functions integration
-bool
-integration (float **array, int array_length, integration_type type, float *voltage_out, float *current_out)
+void integration_riemann_rectangle(float array[][3], int array_length, float *voltage_out, float *current_out)
 {
-/*
- * Type:
- * 		0: Riemann sum rectangle
- * 		1: Riemann sum trapezoidal
- * 		2: Simpson Method
-*/
-	bool status = true;
-
+	printf("\nRectangle\n");
 	*voltage_out = squared(array[0][0]);
 	*current_out = squared(array[0][1]);
-
-	switch(type)
-	{
-		case rectangle: // Riemann sum rectangle
-			for (int i = 1; i < array_length; i++)
-			{
-				*voltage_out += squared(array[i][0]);
-				*current_out += squared(array[i][1]);
-			}
-			// For RMS calculation will be divided by period, canceling the sampling_period_us
-			//*voltage_out *= sampling_period_s;
-			//*current_out *= sampling_period_s;
-			break;
-
-		case trapezoidal: // Riemann sum trapezoidal
-			for (int i = 1; i < array_length - 1; i++)
-			{
-				*voltage_out += 2 * squared(array[i][0]);
-				*current_out += 2 * squared(array[i][1]);
-			}
-
-			*voltage_out += squared(array[array_length - 1][0]);
-			*current_out += squared(array[array_length - 1][1]);
-
-			// For RMS calculation will be divided by period, canceling the sampling_period_us
-			//*voltage_out *= sampling_period_s / 2;
-			//*current_out *= sampling_period_s / 2;
-			*voltage_out /= 2;
-			*current_out /= 2;
-			break;
-
-		case simpson: // Simpson Method
-			// Requires 2*Nk intervals, meaning array length with odd value and greater than 3
-			// Array length has size 2^N, N integer
-			// Consider array length - 1 for Simpson and add last point considering Riemann sum rectangle
-			*voltage_out += 4 * squared(array[1][0]);
-			*current_out += 4 * squared(array[1][1]);
-			for (int i = 2; i < array_length - 2; )
-			{
-				// Even positions
-				*voltage_out += 2 * squared(array[i][0]);
-				*current_out += 2 * squared(array[i][1]);
-
-				i++;
-
-				// Odd positions
-				*voltage_out += 4 * squared(array[i][0]);
-				*current_out += 4 * squared(array[i][1]);
-
-				i++;
-			}
-			*voltage_out += squared(array[array_length - 2][0]);
-			*current_out += squared(array[array_length - 2][1]);
-
-			// For RMS calculation will be divided by period, canceling the sampling_period_us
-			//*voltage_out *= sampling_period_s / 3;
-			//*current_out *= sampling_period_s / 3;
-			*voltage_out /= 3;
-			*current_out /= 3;
-			// end Simpson Method
-
-			// Last point considering Reimann sums trapezoidal
-			// For RMS calculation will be divided by period, canceling the sampling_period_us
-			//*voltage_out += (squared(array[array_length - 2][0]) + squared(array[array_length - 1][0])) * (sampling_period_s / 2);
-			//*current_out += (squared(array[array_length - 2][1]) + squared(array[array_length - 1][1])) * (sampling_period_s / 2);
-			*voltage_out += (squared(array[array_length - 2][0]) + squared(array[array_length - 1][0])) / 2;
-			*current_out += (squared(array[array_length - 2][1]) + squared(array[array_length - 1][1])) / 2;
-			break;
-
-		default:
-			status = false;
-			break;
-	}
-
-	return status;
-}
-
-void integration_riemann_rectangle(float **array, int array_length, float *voltage_out, float *current_out)
-{
-	*voltage_out = 0;
-	*current_out = 0;
 
 	for (int i = 1; i < array_length; i++)
 	{
 		*voltage_out += squared(array[i][0]);
 		*current_out += squared(array[i][1]);
 	}
+
 	// For RMS calculation will be divided by period, canceling the sampling_period_us
 	//*voltage_out *= sampling_period_s;
 	//*current_out *= sampling_period_s;
 }
 
-void integration_riemann_trapezoidal(float **array, int array_length, float *voltage_out, float *current_out)
+void integration_riemann_trapezoidal(float array[][3], int array_length, float *voltage_out, float *current_out)
 {
-	*voltage_out = squared(array[0][0]) + squared(array[array_length - 1][0]);
-	*current_out = squared(array[0][1]) + squared(array[array_length - 1][1]);
+/*
+ * sum = (h/2) * [x(0) + 2 * x(1) + 2 * x(2) + ... + 2 * x(n - 2) + x(n - 1)]
+*/
+	printf("\nTrapezoidal\n");
+	*voltage_out = squared(array[1][0]);
+	*current_out = squared(array[1][1]);
 
-	for (int i = 1; i < array_length - 1; i++)
+	for (int i = 2; i < array_length - 1; i++)
 	{
-		*voltage_out += 2 * squared(array[i][0]);
-		*current_out += 2 * squared(array[i][1]);
+		*voltage_out += squared(array[i][0]);
+		*current_out += squared(array[i][1]);
 	}
 
-	// For RMS calculation will be divided by period, canceling the sampling_period_us
-	//*voltage_out *= sampling_period_s / 2;
-	//*current_out *= sampling_period_s / 2;
-	*voltage_out /= 2;
-	*current_out /= 2;
+	*voltage_out += (squared(array[0][0]) + squared(array[array_length - 1][0])) / 2.0;
+	*current_out += (squared(array[0][1]) + squared(array[array_length - 1][1])) / 2.0;
+
+	// For RMS calculation result will be divided by period, canceling the sampling_period_us
+	//*voltage_out *= sampling_period_s;
+	//*current_out *= sampling_period_s;
 }
 
-void integration_simpson(float **array, int array_length, float *voltage_out, float *current_out)
+void integration_simpson(float array[][3], int array_length, int array_cols, float *voltage_out, float *current_out)
 {
 	// Requires even number of intervals, meaning array length with odd value and greater than 3
 	// Array length has size 2^N, N integer, meaning even
 	// Consider array length - 1 for Simpson and add last point considering Riemann sum trapezoidal
 	// Initialize with first and second values of simpson method
-	// initial value = 1st simpson      +         2nd simpson        + 	  last value or simpson (N - 2)
-	*voltage_out = squared(array[0][0]) + (4 * squared(array[1][0])) + squared(array[array_length - 2][0]);
-	*current_out = squared(array[0][1]) + (4 * squared(array[1][1])) + squared(array[array_length - 2][1]);
+	// initial value = 1st simpson      +         2nd simpson          + last value or simpson, array[N - 2]
+
+	printf("\nSimpson\n");
+	*voltage_out = squared(array[0][0]) + (4.0 * squared(array[1][0])) + squared(array[array_length - 2][0]);
+	*current_out = squared(array[0][1]) + (4.0 * squared(array[1][1])) + squared(array[array_length - 2][1]);
 
 	for (int i = 2; i < array_length - 2; )
 	{
 		// Even positions
-		*voltage_out += 2 * squared(array[i][0]);
-		*current_out += 2 * squared(array[i][1]);
+		*voltage_out += 2.0 * squared(array[i][0]);
+		*current_out += 2.0 * squared(array[i][1]);
 
 		i++;
 
 		// Odd positions
-		*voltage_out += 4 * squared(array[i][0]);
-		*current_out += 4 * squared(array[i][1]);
+		*voltage_out += 4.0 * squared(array[i][0]);
+		*current_out += 4.0 * squared(array[i][1]);
 
 		i++;
 	}
 
-	// For RMS calculation will be divided by period, canceling the sampling_period_us
-	//*voltage_out *= sampling_period_s / 3;
-	//*current_out *= sampling_period_s / 3;
-	*voltage_out /= 3;
-	*current_out /= 3;
+	*voltage_out /= 3.0;
+	*current_out /= 3.0;
 
 	// Last point considering Reimann Trapezoidal sum
 	// For RMS calculation will be divided by period, canceling the sampling_period_us
-	//*voltage_out += (squared(array[array_length - 2][0]) + squared(array[array_length - 1][0])) * (sampling_period_s / 2);
-	//*current_out += (squared(array[array_length - 2][1]) + squared(array[array_length - 1][1])) * (sampling_period_s / 2);
-	*voltage_out += (squared(array[array_length - 2][0]) + squared(array[array_length - 1][0])) / 2;
-	*current_out += (squared(array[array_length - 2][1]) + squared(array[array_length - 1][1])) / 2;
+	*voltage_out += (squared(array[array_length - 2][0]) + squared(array[array_length - 2][0])) / 2.0;
+	*current_out += (squared(array[array_length - 2][1]) + squared(array[array_length - 1][1])) / 2.0;
+
+	// For RMS calculation will be divided by period, canceling the sampling_period_us
+//	*voltage_out *= sampling_period_s;
+//	*current_out *= sampling_period_s;
 }
 //// end functions integration
 // end functions
@@ -1538,7 +1460,7 @@ extern "C"
 void app_main()
 {
 	// Initializers
-		// SNTP
+	//// Initializers SNTP
 	/**
 	 * NTP server address could be aquired via DHCP,
 	 * see following menuconfig options:
@@ -1552,35 +1474,39 @@ void app_main()
 		sntp_servermode_dhcp(1);      // accept NTP offers from DHCP server, if any
 	#endif
 
-	// Semaphores
+	//// Initializers Semaphores
 //	semaphore_adc = xSemaphoreCreateMutex();
 //	semaphore_fft = xSemaphoreCreateMutex();
 
-		// Initialize Wi-Fi in Access Point + Station mode
+	//// Initializers Wi-Fi in Access Point + Station mode
 	wifi_init_ap_sta();
 	printf("\ninit wifi ap + sta\n");
 
-//		// Circuit phases
+	//// Initializers Circuit phases
 	init_phase();
 
-		// ADC
+	//// Initializers ADC
 	init_adc();
 	printf("\ninit_adc!\n");
 
-		// FFT
+	//// Initializers FFT
+#if _MECOEN_FFT_
 	ESP_ERROR_CHECK(init_fft());
 	printf("\ninit_fft!\n");
+#endif
 
-		// SNTP
+	//// Initializers SNTP
 	init_time();
 	char strftime_buf[64];
 	struct tm timeinfo;
 	timeval now;
 
-		// I2C | RTC DS3231
+	//// Initializers I2C | RTC DS3231
 	gettimeofday(&now, NULL);
 	localtime_r(&now.tv_sec, &timeinfo);
+#if _MECOEN_DS3231_
 	init_rtc_ds3231(&timeinfo);
+#endif
 	// end Initializers
 
 	// Take semaphore to sync FFT and ADC tasks
@@ -1588,61 +1514,77 @@ void app_main()
 //	xSemaphoreTake(semaphore_adc, portMAX_DELAY);
 
 	// Create Tasks
-		// Web server
+	//// Create Tasks Web server
 	xTaskCreatePinnedToCore(&http_server, "http_server", 2048, NULL, 5, NULL, 1);
 
-		// ADC
+	//// Create Tasks ADC
 //    xTaskCreatePinnedToCore(read_phase, "read_phase", 2048, &phase_a, 5, &task_adc, 1);
 //    xTaskCreatePinnedToCore(read_phase2, "read_phase2", 2048, &phase_a, 5, NULL/*&task_adc*/, 1);
     xTaskCreatePinnedToCore(read_phase_gptimer, "read_phase_gptimer", 2048, &phase_a, 5, NULL/*&task_adc*/, 1);
     printf("\nread_phase task initialized!\n");
 
-    	// FFT
-//    xTaskCreatePinnedToCore(fft_continuous, "fft_continuous", 2048, &phase_a, 5, &task_fft, 1);
-//	printf("\nread_fft task initialized!\n");
+    //// Create Tasks FFT
+#if _MECOEN_FFT_
+    xTaskCreatePinnedToCore(fft_continuous, "fft_continuous", 2048, &phase_a, 5, &task_fft, 1);
+	printf("\nread_fft task initialized!\n");
+#endif
 
-		// I2C | RTC DS3231
-//    xTaskCreate(rtc_ds3231, "rtc_ds3231", configMINIMAL_STACK_SIZE * 3, NULL, 5, NULL);
+	//// Create Tasks I2C | RTC DS3231
+#if _MECOEN_DS3231_
+    xTaskCreate(rtc_ds3231, "rtc_ds3231", configMINIMAL_STACK_SIZE * 3, NULL, 5, NULL);
+#endif
 	// end Create Tasks
 
-	vTaskDelay(500 / portTICK_RATE_MS);
+	vTaskDelay(3000 / portTICK_RATE_MS);
 
     printf("\nMain loop initialized!\n");
     while (1)
     {
 //		delayMicroseconds((int) 1e6); // 5 s
-      vTaskDelay(pdMS_TO_TICKS(1000)); //  1 s
+      vTaskDelay(1000 / portTICK_RATE_MS); //  1 s
 
-//		gettimeofday(&now, NULL);
-//		localtime_r(&now.tv_sec, &timeinfo);
-//		strftime(strftime_buf, sizeof(strftime_buf), "%c", &timeinfo);
-//		printf("The current date/time is: %s\n", strftime_buf);
+#if _MECOEN_DS3231_
+		gettimeofday(&now, NULL);
+		localtime_r(&now.tv_sec, &timeinfo);
+		strftime(strftime_buf, sizeof(strftime_buf), "%c", &timeinfo);
+		printf("The current date/time is: %s\n", strftime_buf);
+#endif
 
 		// Copy data to copy array
-		for (int i = 0; i < N_ARRAY_LENGTH / REASON; i++)
+		for (int i = 0; i < n_array_copy_length; i++)
 		{
 			phase_copy[i][0] = phase_a.voltage.samples[i] - zmpt101b_vdc;
 			phase_copy[i][1] = phase_a.current.samples[i] - sct013_vdc;
 		}
 		// end data copy
 
-		// Integration
+		// RMS
+		// RMS Integration
+#if (_MECOEN_INTEGRATION_TYPE_ && (1 << 0))
+		integration_riemann_rectangle(phase_copy, n_array_copy_length, &phase_a.voltage.rms, &phase_a.current.rms);
+#elif (_MECOEN_INTEGRATION_TYPE_ && (1 << 1))
+		integration_riemann_trapezoidal(phase_copy, n_array_copy_length, &phase_a.voltage.rms, &phase_a.current.rms);
+#elif (_MECOEN_INTEGRATION_TYPE_ && (1 << 2))
+		integration_simpson(phase_copy, n_array_copy_length, &phase_a.voltage.rms, &phase_a.current.rms);
+#else
 		phase_a.voltage.rms = 0;
 		phase_a.current.rms = 0;
-		for (int i = 0; i < N_ARRAY_LENGTH / REASON; i++)
+		for (int i = 0; i < n_array_copy_length; i++)
 		{
 			phase_a.voltage.rms += squared(phase_copy[i][0]);
 			phase_a.current.rms += squared(phase_copy[i][1]);
 		}
-//		phase_a.voltage.rms *= sampling_period_s;
-//		phase_a.current.rms *= sampling_period_s;
-		// end Integration
+		phase_a.voltage.rms *= sampling_period_s;
+		phase_a.current.rms *= sampling_period_s;
+#endif
+		// end RMS Integration
 
-		phase_a.voltage.rms = sqrt(phase_a.voltage.rms / (N_ARRAY_LENGTH / REASON));
-		phase_a.current.rms = sqrt(phase_a.current.rms / (N_ARRAY_LENGTH / REASON));
+		phase_a.voltage.rms = sqrt(phase_a.voltage.rms / n_array_copy_length);
+		phase_a.current.rms = sqrt(phase_a.current.rms / n_array_copy_length);
 		phase_a.power_apparent = phase_a.voltage.rms * phase_a.current.rms;
+		// end RMS
 
-//		for (int i = 0; i < N_ARRAY_LENGTH / REASON; i++)
+//		for (int i = 0; i < n_array_copy_length; i++)
 //		{
 //			printf("%08.4f %08.4f %08.4f\n", phase_copy[i][0], phase_copy[i][1], phase_copy[i][2]);
 //			fflush(stdout);

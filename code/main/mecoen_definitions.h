@@ -18,9 +18,18 @@
 
 /**********************************************************************/
 // definitions
+//// definitions configurations
+#define _MECOEN_NUM_PHASES_ 1
+#define _MECOEN_INTEGRATION_TYPE_ (1 << 0) // integration type by shift: 0: rectangle | 1: trapezoidal | 2: simpson
+#define _MECOEN_FFT_ 0 							// 0: Doesn't run FFT | 1: Run FFT
+#define _MECOEN_DS3231_ 0
+//// definitions configurations
+
+
 //// definitions macros
 #define squared(x) ((x) * (x))
 //// end definitions macros
+
 
 //// definitions enums
 enum integration_type{rectangle = 0, trapezoidal = 1, simpson = 2};
@@ -54,7 +63,7 @@ enum integration_type{rectangle = 0, trapezoidal = 1, simpson = 2};
 
 ////// definitions ADC sampling
 #define SAMPLING_FREQUENCY 2500
-#define NO_OF_SAMPLES   8          //Multisampling
+#define NO_OF_SAMPLES   4          //Multisampling
 ////// end definitions ADC sampling
 
 ////// definitions ADC voltage sensor parameters
@@ -147,7 +156,7 @@ typedef struct Mag_phase
 typedef struct Signal
 {
 	float samples[N_ARRAY_LENGTH];
-	float rms_previous = 0, rms = 0;
+	float rms_previous, rms;
 
 	// FFT
 	// working complex array
@@ -173,12 +182,10 @@ typedef struct Circuit_phase
 //// end structure for voltage and current readings in a phase of the circuit, and phase power calculation results
 
 
-//// structure for ADC reading in interrupt
 typedef struct
 {
-	int *readings, *sample_num;
-} Adc_interrupt_data_struct;
-//// end structure for ADC reading in interrupt
+	float apparent, active, reactive, power_factor, frequency;
+} Power;
 // end structures
 
 #endif /* MAIN_DEFINITIONS_H_ */
