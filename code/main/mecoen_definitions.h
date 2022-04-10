@@ -20,9 +20,10 @@
 // definitions
 //// definitions configurations
 #define _MECOEN_NUM_PHASES_ 1
-#define _MECOEN_INTEGRATION_TYPE_ (1 << 0) // integration type by shift: 0: rectangle | 1: trapezoidal | 2: simpson
+#define _MECOEN_INTEGRATION_TYPE_ (1 << 0) // integration type by shift: 1: trapezoidal | 2: simpson | different value: rectangle
 #define _MECOEN_FFT_ 0 							// 0: Doesn't run FFT | 1: Run FFT
 #define _MECOEN_DS3231_ 0
+#define _MECOEN_STORAGE_ 0
 //// definitions configurations
 
 
@@ -63,7 +64,7 @@ enum integration_type{rectangle = 0, trapezoidal = 1, simpson = 2};
 
 ////// definitions ADC sampling
 #define SAMPLING_FREQUENCY 2500
-#define NO_OF_SAMPLES   4          //Multisampling
+#define NO_OF_SAMPLES   3          //Multisampling
 ////// end definitions ADC sampling
 
 ////// definitions ADC voltage sensor parameters

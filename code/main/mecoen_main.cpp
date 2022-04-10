@@ -202,7 +202,9 @@ static const char *TAG_WIFI = "wifi ap + station";
 
 //// const storage
 static constexpr int storage_period_s = STORAGE_PERIOD * 60;
+#if _MECOEN_STORAGE_
 static const char *base_path = "/mecoen"; // Mount path for the partition
+#endif
 //// end const storage
 
 
@@ -220,8 +222,10 @@ static int measurements;
 
 
 
-//// global variables semaphores
-//TaskHandle_t task_adc = NULL, task_fft = NULL;
+//// global variables semaphores task handles
+//static TaskHandle_t task_adc = NULL, task_fft = NULL;
+static TaskHandle_t task_adc_interrupt = NULL;
+static SemaphoreHandle_t semaphore_adc_main;
 static SemaphoreHandle_t semaphore_adc, semaphore_adc_interrupt, semaphore_fft;
 //// end global variables semaphores
 
@@ -252,7 +256,9 @@ static int s_retry_num = 0;
 
 
 //// global variables storage
+#if _MECOEN_STORAGE_
 static wl_handle_t s_wl_handle = WL_INVALID_HANDLE; // Handle of the wear levelling library instance
+#endif
 //// end global variables storage
 
 
@@ -650,6 +656,9 @@ adc_read_interwoven(adc_channel_t channel_v1, adc_channel_t channel_i1, int *rea
 		readings[0] += adc1_get_raw((adc1_channel_t) channel_v1);
 		readings[1] += adc1_get_raw((adc1_channel_t) channel_i1);
 	}
+
+	readings[0] /= NO_OF_SAMPLES;
+	readings[1] /= NO_OF_SAMPLES;
 }
 
 
@@ -728,7 +737,7 @@ static bool IRAM_ATTR adc_read_gptimer(gptimer_handle_t timer, const gptimer_ala
     BaseType_t high_task_awoken = pdFALSE;
 
     measurements++;
-    xSemaphoreGiveFromISR(semaphore_adc_interrupt, &high_task_awoken);
+    vTaskNotifyGiveIndexedFromISR(task_adc_interrupt, 1, &high_task_awoken);
 
     return (high_task_awoken == pdTRUE);
 }
@@ -744,38 +753,11 @@ printf("read_phase_gptimer\n");
 
 	TickType_t xLastWakeTime = xTaskGetTickCount();
 
-	float zmpt101b_vdc2 = 0.0;
-	float sct013_vdc2 = 0.0;
-
 	int readings[2];
 	int sample_num = 0;
-
-	//// Calculate the average DC value of each sensor
-	for (sample_num = 0; sample_num < N_ARRAY_LENGTH; sample_num++)
-	{
-		//Convert adc_reading to voltage in mV
-		phase->voltage.samples[sample_num] = (float) esp_adc_cal_raw_to_voltage(get_adc1_value(channel_v), adc_chars);
-		phase->current.samples[sample_num] = (float) esp_adc_cal_raw_to_voltage(get_adc1_value(channel_i), adc_chars);
-		zmpt101b_vdc2 += phase->voltage.samples[sample_num];
-		sct013_vdc2 += phase->current.samples[sample_num];
-		delayMicroseconds(SAMPLING_PERIOD_US);
-	}
-	zmpt101b_vdc2 /= N_ARRAY_LENGTH;
-	sct013_vdc2 /= N_ARRAY_LENGTH;
-	sample_num = 0;
-
-	zmpt101b_vdc = zmpt101b_vdc2;
-	sct013_vdc = sct013_vdc2;
-
-	//// end Calculate the average DC value of each sensor
-
-	// Initialize semaphore to interact with the function called by interrupt
-//printf("\nInitialize semaphore\n");
-	semaphore_adc_interrupt = xSemaphoreCreateBinary();
-//printf("\nInitialized semaphore\n");
+	float zmpt101b_vdc_local = 0.0, sct013_vdc_local = 0.0;
 
 	// timer set up
-//printf("\nCreate timer handle\n");
 	ESP_LOGI(TAG_TIMER, "Create timer handle");
 	gptimer_handle_t gptimer = NULL;
 	gptimer_config_t timer_config = {
@@ -787,17 +769,14 @@ printf("read_phase_gptimer\n");
 		}
 	};
 	ESP_ERROR_CHECK(gptimer_new_timer(&timer_config, &gptimer));
-//printf("\nCreated timer handle\n");
 
 	// timer set function
-//printf("\nSet timer function\n");
 	gptimer_event_callbacks_t cbs = {
 		.on_alarm = adc_read_gptimer
 	};
-	ESP_ERROR_CHECK(gptimer_register_event_callbacks(gptimer, &cbs, NULL));
-//printf("\ntimer function set\n");
+	ESP_ERROR_CHECK(gptimer_register_event_callbacks(gptimer, &cbs, (void *)&sample_num));
+
 	// alarm configuration
-//printf("\nset alarm config\n");
 	gptimer_alarm_config_t alarm_config = {
 		.alarm_count = (uint64_t) (SAMPLING_PERIOD_US), // period
 		.reload_count = 0, // counter will reload with 0 on alarm event
@@ -806,72 +785,58 @@ printf("read_phase_gptimer\n");
 		}
 	};
 	ESP_ERROR_CHECK(gptimer_set_alarm_action(gptimer, &alarm_config));
-//printf("\nalarm config set\n");
 	// end timer set up
-//int cycle = 0;
+
 	while(1)
 	{
-//printf("\nread_adc_gptimer cycle %08d\n", ++cycle);
         vTaskDelayUntil( &xLastWakeTime, ticks_1s); // Wait until 1 s since last called
-//printf("\nvtaskdelay\n");
         xLastWakeTime = xTaskGetTickCount();
-//printf("\nget tick count\n");
-
-        // Semaphore
-//        xSemaphoreGive(semaphore_adc_interrupt);
-//printf("\nSemaphore give\n");
-//		xSemaphoreTake(semaphore_adc_interrupt, 10 / portTICK_PERIOD_MS);
-//printf("\nSemaphore take\n");
 
         // Reset and restart timer
 		ESP_ERROR_CHECK(gptimer_set_raw_count(gptimer, 0));
-//printf("\ntimer set raw\n");
-		measurements = 0;
-esp_err_t ret;
-ret = gptimer_start(gptimer);
-//printf("%d\n",ret);
-		ESP_ERROR_CHECK(ret);
-//printf("\nTimer Restart\n");
+		ESP_ERROR_CHECK(gptimer_start(gptimer));
 
-		sample_num = 0;
-		while (sample_num < N_ARRAY_LENGTH)
+		measurements = 0;
+		for (sample_num = 0; sample_num < N_ARRAY_LENGTH; sample_num++)
 		{
-//printf("\nsem\n");
-			// Wait for semaphoregive from adc interrupt reading
-			xSemaphoreTake(semaphore_adc_interrupt, 20 / portTICK_PERIOD_MS);
+			// Wait for task notification from ADC interrupt reading | acts as binary semaphore
+			ulTaskNotifyTakeIndexed(1, pdTRUE, ticks_1s);
 
 			adc_read_interwoven(channel_v, channel_i, readings);
-			// Remove last read value from moving average DC
-//			zmpt101b_vdc2 -= phase->voltage.samples[sample_num] / N_ARRAY_LENGTH;
-//			sct013_vdc2 -= phase->current.samples[sample_num] / N_ARRAY_LENGTH;
 
-			zmpt101b_vdc -= phase->voltage.samples[sample_num] / N_ARRAY_LENGTH;
-			sct013_vdc -= phase->current.samples[sample_num] / N_ARRAY_LENGTH;
+			// Save value to sampling array without any conversions
+			// Has value proportional to NO_OF_SAMPLES
+			phase->voltage.samples[sample_num] = (float) readings[0];
+			phase->current.samples[sample_num] = (float) readings[1];
+		}
 
-			//Convert adc_reading to voltage in mV
-			phase->voltage.samples[sample_num] = (float) esp_adc_cal_raw_to_voltage((uint32_t) readings[0] / NO_OF_SAMPLES, adc_chars);
-			phase->current.samples[sample_num] = (float) esp_adc_cal_raw_to_voltage((uint32_t) readings[1] / NO_OF_SAMPLES, adc_chars);
+		// Stop timer
+		ESP_ERROR_CHECK(gptimer_stop(gptimer));
 
-			// Add newest read value to moving average DC
-//			zmpt101b_vdc2 += phase->voltage.samples[sample_num] / N_ARRAY_LENGTH;
-//			sct013_vdc2 += phase->current.samples[sample_num] / N_ARRAY_LENGTH;
+		zmpt101b_vdc_local = 0.0;
+		sct013_vdc_local   = 0.0;
+		for (sample_num = 0; sample_num < N_ARRAY_LENGTH; sample_num++)
+		{
+			phase->voltage.samples[sample_num] = (float) esp_adc_cal_raw_to_voltage((uint32_t) phase->voltage.samples[sample_num],adc_chars);
+			phase->current.samples[sample_num] = (float) esp_adc_cal_raw_to_voltage((uint32_t) phase->current.samples[sample_num],adc_chars);
 
-			zmpt101b_vdc += phase->voltage.samples[sample_num] / N_ARRAY_LENGTH;
-			sct013_vdc += phase->current.samples[sample_num] / N_ARRAY_LENGTH;
-
+			zmpt101b_vdc_local += phase->voltage.samples[sample_num];
+			sct013_vdc_local   += phase->current.samples[sample_num];
+#if 0
 			// Remove DC bias
-//			phase->voltage.samples[sample_num] = phase->voltage.samples[sample_num] - zmpt101b_vdc2;
-//			phase->current.samples[sample_num] = phase->current.samples[sample_num] - sct013_vdc2;
+			phase->voltage.samples[sample_num] = phase->voltage.samples[sample_num] - zmpt101b_vdc2;
+			phase->current.samples[sample_num] = phase->current.samples[sample_num] - sct013_vdc2;
 
 			// Convert to real world value
-//			phase->voltage.samples[sample_num] *= ZMPT101B_CONSTANT_MULTIPLIER;
-//			phase->current.samples[sample_num] *= SCT013_CONSTANT_MULTIPLIER;
-
-			sample_num++;
+			phase->voltage.samples[sample_num] *= ZMPT101B_CONSTANT_MULTIPLIER;
+			phase->current.samples[sample_num] *= SCT013_CONSTANT_MULTIPLIER;
+#endif
 		}
-printf("%d", measurements);
-		// Stop timer
-	    ESP_ERROR_CHECK(gptimer_stop(gptimer));
+		zmpt101b_vdc = zmpt101b_vdc_local / N_ARRAY_LENGTH;
+		sct013_vdc   =   sct013_vdc_local / N_ARRAY_LENGTH;
+
+		xSemaphoreGive(semaphore_adc_main);
+printf("\n%d\n", measurements);
 	}
 
     ESP_ERROR_CHECK(gptimer_stop(gptimer));
@@ -1411,7 +1376,7 @@ void integration_riemann_trapezoidal(float array[][3], int array_length, float *
 	//*current_out *= sampling_period_s;
 }
 
-void integration_simpson(float array[][3], int array_length, int array_cols, float *voltage_out, float *current_out)
+void integration_simpson(float array[][3], int array_length, float *voltage_out, float *current_out)
 {
 	// Requires even number of intervals, meaning array length with odd value and greater than 3
 	// Array length has size 2^N, N integer, meaning even
@@ -1459,6 +1424,10 @@ extern "C"
 #endif
 void app_main()
 {
+	// Local variables
+	TickType_t xLastWakeTime;
+	// end Local variables
+
 	// Initializers
 	//// Initializers SNTP
 	/**
@@ -1475,6 +1444,7 @@ void app_main()
 	#endif
 
 	//// Initializers Semaphores
+	semaphore_adc_main = xSemaphoreCreateBinary();
 //	semaphore_adc = xSemaphoreCreateMutex();
 //	semaphore_fft = xSemaphoreCreateMutex();
 
@@ -1497,7 +1467,9 @@ void app_main()
 
 	//// Initializers SNTP
 	init_time();
+#if _MECOEN_DS3231_
 	char strftime_buf[64];
+#endif
 	struct tm timeinfo;
 	timeval now;
 
@@ -1520,7 +1492,7 @@ void app_main()
 	//// Create Tasks ADC
 //    xTaskCreatePinnedToCore(read_phase, "read_phase", 2048, &phase_a, 5, &task_adc, 1);
 //    xTaskCreatePinnedToCore(read_phase2, "read_phase2", 2048, &phase_a, 5, NULL/*&task_adc*/, 1);
-    xTaskCreatePinnedToCore(read_phase_gptimer, "read_phase_gptimer", 2048, &phase_a, 5, NULL/*&task_adc*/, 1);
+    xTaskCreatePinnedToCore(read_phase_gptimer, "read_phase_gptimer", 2048, &phase_a, 5, &task_adc_interrupt, 0);
     printf("\nread_phase task initialized!\n");
 
     //// Create Tasks FFT
@@ -1535,13 +1507,14 @@ void app_main()
 #endif
 	// end Create Tasks
 
-	vTaskDelay(3000 / portTICK_RATE_MS);
+//	vTaskDelay(3000 / portTICK_RATE_MS);
 
     printf("\nMain loop initialized!\n");
     while (1)
     {
-//		delayMicroseconds((int) 1e6); // 5 s
-      vTaskDelay(1000 / portTICK_RATE_MS); //  1 s
+    	vTaskDelayUntil( &xLastWakeTime, ticks_1s); // Wait until 1 s since last called
+    	//printf("\nvtaskdelay\n");
+		xLastWakeTime = xTaskGetTickCount();
 
 #if _MECOEN_DS3231_
 		gettimeofday(&now, NULL);
@@ -1550,6 +1523,7 @@ void app_main()
 		printf("The current date/time is: %s\n", strftime_buf);
 #endif
 
+		xSemaphoreTake(semaphore_adc_main, ticks_1s);
 		// Copy data to copy array
 		for (int i = 0; i < n_array_copy_length; i++)
 		{
@@ -1560,22 +1534,12 @@ void app_main()
 
 		// RMS
 		// RMS Integration
-#if (_MECOEN_INTEGRATION_TYPE_ && (1 << 0))
-		integration_riemann_rectangle(phase_copy, n_array_copy_length, &phase_a.voltage.rms, &phase_a.current.rms);
-#elif (_MECOEN_INTEGRATION_TYPE_ && (1 << 1))
+#if (_MECOEN_INTEGRATION_TYPE_ == (1 << 1))
 		integration_riemann_trapezoidal(phase_copy, n_array_copy_length, &phase_a.voltage.rms, &phase_a.current.rms);
-#elif (_MECOEN_INTEGRATION_TYPE_ && (1 << 2))
+#elif (_MECOEN_INTEGRATION_TYPE_ == (1 << 2))
 		integration_simpson(phase_copy, n_array_copy_length, &phase_a.voltage.rms, &phase_a.current.rms);
 #else
-		phase_a.voltage.rms = 0;
-		phase_a.current.rms = 0;
-		for (int i = 0; i < n_array_copy_length; i++)
-		{
-			phase_a.voltage.rms += squared(phase_copy[i][0]);
-			phase_a.current.rms += squared(phase_copy[i][1]);
-		}
-		phase_a.voltage.rms *= sampling_period_s;
-		phase_a.current.rms *= sampling_period_s;
+		integration_riemann_rectangle(phase_copy, n_array_copy_length, &phase_a.voltage.rms, &phase_a.current.rms);
 #endif
 		// end RMS Integration
 
@@ -1584,12 +1548,14 @@ void app_main()
 		phase_a.power_apparent = phase_a.voltage.rms * phase_a.current.rms;
 		// end RMS
 
-//		for (int i = 0; i < n_array_copy_length; i++)
-//		{
-//			printf("%08.4f %08.4f %08.4f\n", phase_copy[i][0], phase_copy[i][1], phase_copy[i][2]);
-//			fflush(stdout);
-//			vTaskDelay(10 / portTICK_RATE_MS);
-//		}
+#if 1
+		for (int i = 0; i < n_array_copy_length; i++)
+		{
+			printf("%08.4f %08.4f %08.4f\n", phase_copy[i][0], phase_copy[i][1], phase_copy[i][2]);
+			fflush(stdout);
+			vTaskDelay(10 / portTICK_RATE_MS);
+		}
+#endif
 		printf("\nVrms = %06.2f; Irms = %06.2f; P = %06.2f\n", phase_a.voltage.rms, phase_a.current.rms, phase_a.power_apparent);
 
 		phase_a.voltage.rms = phase_a.voltage.rms_previous;
