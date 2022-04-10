@@ -553,7 +553,17 @@ read_phase(void *arg)
 	for (sample_num = 0; sample_num < N_ARRAY_LENGTH; sample_num++)
 	{
 		// Reading ADC
-		adc_read_interwoven(channel_v, channel_i, readings);
+		readings[0] = adc1_get_raw((adc1_channel_t) channel_v);
+		readings[1] = adc1_get_raw((adc1_channel_t) channel_i);
+
+		// Multisampling
+		for (int i = 1; i < NO_OF_SAMPLES; i++)
+		{
+			readings[0] += adc1_get_raw((adc1_channel_t) channel_v);
+			readings[1] += adc1_get_raw((adc1_channel_t) channel_i);
+		}
+		// end Reading ADC
+
 		//Convert adc_reading to voltage in mV
 		phase->voltage.samples[sample_num] = (float) esp_adc_cal_raw_to_voltage((uint32_t) (readings[0] / NO_OF_SAMPLES), adc_chars);
 		phase->current.samples[sample_num] = (float) esp_adc_cal_raw_to_voltage((uint32_t) (readings[1] / NO_OF_SAMPLES), adc_chars);
@@ -614,6 +624,9 @@ read_phase(void *arg)
 
 			delayMicroseconds(SAMPLING_PERIOD_US);
 		}
+		xSemaphoreGive(semaphore_adc_main);
+		vTaskDelay(1);
+		xSemaphoreTake(semaphore_adc_main, ticks_1s);
 	}
 }
 //// end functions ADC
@@ -1110,6 +1123,76 @@ fft_continuous(void *arg)
 
 
 //// functions integration
+void integration(float array[][3], int array_length, float *voltage_out, float *current_out)
+{
+#if _MECOEN_INTEGRATION_TYPE_ == (1 << 1) // Trapezoidal numerical integration method
+/*
+ * sum = (h/2) * [x(0) + 2 * x(1) + 2 * x(2) + ... + 2 * x(n - 2) + x(n - 1)]
+*/
+		printf("\nTrapezoidal\n");
+		*voltage_out = squared(array[1][0]);
+		*current_out = squared(array[1][1]);
+
+		for (int i = 2; i < array_length - 1; i++)
+		{
+			*voltage_out += squared(array[i][0]);
+			*current_out += squared(array[i][1]);
+		}
+
+		*voltage_out += (squared(array[0][0]) + squared(array[array_length - 1][0])) / 2.0;
+		*current_out += (squared(array[0][1]) + squared(array[array_length - 1][1])) / 2.0;
+
+#elif _MECOEN_INTEGRATION_TYPE_ == (1 << 2) // Simpson numerical integration method
+		// Requires even number of intervals, meaning array length with odd value and greater than 3
+		// Array length has size 2^N, N integer, meaning even
+		// Consider array length - 1 for Simpson and add last point considering Riemann sum trapezoidal
+		// Initialize with first and second values of simpson method
+		// initial value = 1st simpson      +         2nd simpson          + last value or simpson, array[N - 2]
+
+		printf("\nSimpson\n");
+		*voltage_out = squared(array[0][0]) + (4.0 * squared(array[1][0])) + squared(array[array_length - 2][0]);
+		*current_out = squared(array[0][1]) + (4.0 * squared(array[1][1])) + squared(array[array_length - 2][1]);
+
+		for (int i = 2; i < array_length - 2; )
+		{
+			// Even positions
+			*voltage_out += 2.0 * squared(array[i][0]);
+			*current_out += 2.0 * squared(array[i][1]);
+
+			i++;
+
+			// Odd positions
+			*voltage_out += 4.0 * squared(array[i][0]);
+			*current_out += 4.0 * squared(array[i][1]);
+
+			i++;
+		}
+
+		*voltage_out /= 3.0;
+		*current_out /= 3.0;
+
+		// Last point considering Reimann Trapezoidal sum
+		// For RMS calculation will be divided by period, canceling the sampling_period_us
+		*voltage_out += (squared(array[array_length - 2][0]) + squared(array[array_length - 2][0])) / 2.0;
+		*current_out += (squared(array[array_length - 2][1]) + squared(array[array_length - 1][1])) / 2.0;
+
+#else // riemann_rectangle
+	printf("\nRectangle\n");
+	*voltage_out = squared(array[0][0]);
+	*current_out = squared(array[0][1]);
+
+	for (int i = 1; i < array_length; i++)
+	{
+		*voltage_out += squared(array[i][0]);
+		*current_out += squared(array[i][1]);
+	}
+#endif
+	// For RMS calculation will be divided by period, canceling the sampling_period_us
+//	*voltage_out *= sampling_period_s;
+//	*current_out *= sampling_period_s;
+}
+
+
 void integration_riemann_rectangle(float array[][3], int array_length, float *voltage_out, float *current_out)
 {
 	printf("\nRectangle\n");
@@ -1218,8 +1301,8 @@ void app_main()
 	#endif
 
 	//// Initializers Semaphores
-	semaphore_adc_main = xSemaphoreCreateBinary();
-	semaphore_adc = xSemaphoreCreateBinary();
+	semaphore_adc_main = xSemaphoreCreateMutex();
+//	semaphore_adc = xSemaphoreCreateBinary();
 //	semaphore_adc = xSemaphoreCreateMutex();
 //	semaphore_fft = xSemaphoreCreateMutex();
 
@@ -1289,24 +1372,17 @@ void app_main()
 #endif
 
 		// Copy data to copy array
+		xSemaphoreTake(semaphore_adc_main, ticks_1s);
 		for (int i = 0; i < n_array_copy_length; i++)
 		{
 			phase_copy[i][0] = phase_a.voltage.samples[i] - zmpt101b_vdc;
 			phase_copy[i][1] = phase_a.current.samples[i] - sct013_vdc;
 		}
+		xSemaphoreGive(semaphore_adc_main);
 		// end data copy
 
 		// RMS
-		// RMS Integration
-#if (_MECOEN_INTEGRATION_TYPE_ == (1 << 1))
-		integration_riemann_trapezoidal(phase_copy, n_array_copy_length, &phase_a.voltage.rms, &phase_a.current.rms);
-#elif (_MECOEN_INTEGRATION_TYPE_ == (1 << 2))
-		integration_simpson(phase_copy, n_array_copy_length, &phase_a.voltage.rms, &phase_a.current.rms);
-#else
-		integration_riemann_rectangle(phase_copy, n_array_copy_length, &phase_a.voltage.rms, &phase_a.current.rms);
-#endif
-		// end RMS Integration
-
+		integration(phase_copy, n_array_copy_length, &phase_a.voltage.rms, &phase_a.current.rms);
 		phase_a.voltage.rms = sqrt(phase_a.voltage.rms / n_array_copy_length);
 		phase_a.current.rms = sqrt(phase_a.current.rms / n_array_copy_length);
 		phase_a.power_apparent = phase_a.voltage.rms * phase_a.current.rms;
@@ -1330,6 +1406,7 @@ void app_main()
     }
 
     // Delete Semaphores
-    vSemaphoreDelete(semaphore_adc);
-	vSemaphoreDelete(semaphore_fft);
+    vSemaphoreDelete(semaphore_adc_main);
+//    vSemaphoreDelete(semaphore_adc);
+//	vSemaphoreDelete(semaphore_fft);
 }
