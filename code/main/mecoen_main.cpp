@@ -165,7 +165,7 @@
 //// const ADC
 ////// const ADC period
 static constexpr float sampling_period_s = 1 / SAMPLING_FREQUENCY;
-static constexpr int SAMPLING_PERIOD_US = (1e6 / SAMPLING_FREQUENCY)/* / 5*/; // Real sampling frequency slightly lower than 1e6/SAMPLING_PERIOD_US
+static constexpr int SAMPLING_PERIOD_US = (1e6 / SAMPLING_FREQUENCY); // Real sampling frequency slightly lower than 1e6/SAMPLING_PERIOD_US
 static constexpr float sampling_frequency = 1e6 / SAMPLING_PERIOD_US;
 ////// end const ADC period
 
@@ -297,11 +297,11 @@ void
 init_phase()
 {
 	phase_a.voltage.y1_cf = &phase_a.voltage.y_cf[0];
-	phase_a.voltage.y2_cf = &phase_a.voltage.y_cf[SAMPLING_FREQUENCY];
+	phase_a.voltage.y2_cf = &phase_a.voltage.y_cf[N_ARRAY_LENGTH];
 	phase_a.current.y1_cf = &phase_a.current.y_cf[0];
-	phase_a.current.y2_cf = &phase_a.current.y_cf[SAMPLING_FREQUENCY];
+	phase_a.current.y2_cf = &phase_a.current.y_cf[N_ARRAY_LENGTH];
 	phase_a.power.y1_cf = &phase_a.power.y_cf[0];
-	phase_a.power.y2_cf = &phase_a.power.y_cf[SAMPLING_FREQUENCY];
+	phase_a.power.y2_cf = &phase_a.power.y_cf[N_ARRAY_LENGTH];
 }
 //// functions variable initializer
 
@@ -1348,7 +1348,7 @@ void app_main()
 	xTaskCreatePinnedToCore(&http_server, "http_server", 2048, NULL, 5, NULL, 1);
 
 	//// Create Tasks ADC
-    xTaskCreatePinnedToCore(read_phase, "read_phase", 2048, &phase_a, 5, NULL/*&task_adc*/, 1);
+    xTaskCreatePinnedToCore(read_phase, "read_phase", 2048, &phase_a, 5, &task_adc, 1);
     //// Create Tasks FFT
 #if _MECOEN_FFT_
     xTaskCreatePinnedToCore(fft_continuous, "fft_continuous", 2048, &phase_a, 5, &task_fft, 1);
