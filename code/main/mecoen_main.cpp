@@ -1339,6 +1339,12 @@ void app_main()
 #endif
 	// end Initializers
 
+printf("\nSingle ADC sample");
+long start = micros();
+uint32_t result = esp_adc_cal_raw_to_voltage(adc1_get_raw((adc1_channel_t) channel_v), adc_chars);
+long end = micros();
+printf("\n%ld", end - start);
+//return;
 	// Take semaphore to sync FFT and ADC tasks
 //	xSemaphoreTake(semaphore_fft, portMAX_DELAY);
 //	xSemaphoreTake(semaphore_adc, portMAX_DELAY);
