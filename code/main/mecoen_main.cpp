@@ -575,8 +575,10 @@ read_phase(void *arg)
 	zmpt101b_vdc = zmpt101b_vdc_local;
 	sct013_vdc = sct013_vdc_local;
 
+
 	while(1)
 	{
+		int average_time = 0;
 		sample_num = 0;
         xTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(1000));
 		while (sample_num < N_ARRAY_LENGTH)
@@ -585,11 +587,13 @@ read_phase(void *arg)
 			zmpt101b_vdc_local -= phase->voltage.samples[sample_num] / N_ARRAY_LENGTH;
 			sct013_vdc_local -= phase->current.samples[sample_num] / N_ARRAY_LENGTH;
 
-
+			int start = micros();
 			// Reading ADC
 			readings[0] = adc1_get_raw((adc1_channel_t) channel_v);
 			readings[1] = adc1_get_raw((adc1_channel_t) channel_i);
 
+//			readings[1] += adc1_get_raw((adc1_channel_t) channel_i);
+//			readings[0] += adc1_get_raw((adc1_channel_t) channel_v);
 			// Multisampling
 			for (int i = 1; i < NO_OF_SAMPLES; i++)
 			{
@@ -597,7 +601,7 @@ read_phase(void *arg)
 				readings[1] += adc1_get_raw((adc1_channel_t) channel_i);
 			}
 			// end Reading ADC
-
+			average_time += micros() - start;
 
 			//Convert adc_reading to voltage in mV
 			phase->voltage.samples[sample_num] = (float) esp_adc_cal_raw_to_voltage(readings[0] / NO_OF_SAMPLES, adc_chars);
@@ -624,6 +628,7 @@ read_phase(void *arg)
 
 			delayMicroseconds(SAMPLING_PERIOD_US);
 		}
+		printf("\naverage time = %d\n", average_time / N_ARRAY_LENGTH);
 		xSemaphoreGive(semaphore_adc_main);
 		vTaskDelay(1);
 		xSemaphoreTake(semaphore_adc, ticks_1s);
@@ -1129,7 +1134,7 @@ void integration(float array[][3], int array_length, float *voltage_out, float *
 /*
  * sum = (h/2) * [x(0) + 2 * x(1) + 2 * x(2) + ... + 2 * x(n - 2) + x(n - 1)]
 */
-		printf("\nTrapezoidal\n");
+//		printf("\nTrapezoidal\n");
 		*voltage_out = squared(array[1][0]);
 		*current_out = squared(array[1][1]);
 
@@ -1149,7 +1154,7 @@ void integration(float array[][3], int array_length, float *voltage_out, float *
 		// Initialize with first and second values of simpson method
 		// initial value = 1st simpson      +         2nd simpson          + last value or simpson, array[N - 2]
 
-		printf("\nSimpson\n");
+//		printf("\nSimpson\n");
 		*voltage_out = squared(array[0][0]) + (4.0 * squared(array[1][0])) + squared(array[array_length - 2][0]);
 		*current_out = squared(array[0][1]) + (4.0 * squared(array[1][1])) + squared(array[array_length - 2][1]);
 
@@ -1177,7 +1182,7 @@ void integration(float array[][3], int array_length, float *voltage_out, float *
 		*current_out += (squared(array[array_length - 2][1]) + squared(array[array_length - 1][1])) / 2.0;
 
 #else // riemann_rectangle
-	printf("\nRectangle\n");
+//	printf("\nRectangle\n");
 	*voltage_out = squared(array[0][0]);
 	*current_out = squared(array[0][1]);
 
@@ -1187,87 +1192,6 @@ void integration(float array[][3], int array_length, float *voltage_out, float *
 		*current_out += squared(array[i][1]);
 	}
 #endif
-	// For RMS calculation will be divided by period, canceling the sampling_period_us
-//	*voltage_out *= sampling_period_s;
-//	*current_out *= sampling_period_s;
-}
-
-
-void integration_riemann_rectangle(float array[][3], int array_length, float *voltage_out, float *current_out)
-{
-	printf("\nRectangle\n");
-	*voltage_out = squared(array[0][0]);
-	*current_out = squared(array[0][1]);
-
-	for (int i = 1; i < array_length; i++)
-	{
-		*voltage_out += squared(array[i][0]);
-		*current_out += squared(array[i][1]);
-	}
-
-	// For RMS calculation will be divided by period, canceling the sampling_period_us
-	//*voltage_out *= sampling_period_s;
-	//*current_out *= sampling_period_s;
-}
-
-void integration_riemann_trapezoidal(float array[][3], int array_length, float *voltage_out, float *current_out)
-{
-/*
- * sum = (h/2) * [x(0) + 2 * x(1) + 2 * x(2) + ... + 2 * x(n - 2) + x(n - 1)]
-*/
-	printf("\nTrapezoidal\n");
-	*voltage_out = squared(array[1][0]);
-	*current_out = squared(array[1][1]);
-
-	for (int i = 2; i < array_length - 1; i++)
-	{
-		*voltage_out += squared(array[i][0]);
-		*current_out += squared(array[i][1]);
-	}
-
-	*voltage_out += (squared(array[0][0]) + squared(array[array_length - 1][0])) / 2.0;
-	*current_out += (squared(array[0][1]) + squared(array[array_length - 1][1])) / 2.0;
-
-	// For RMS calculation result will be divided by period, canceling the sampling_period_us
-	//*voltage_out *= sampling_period_s;
-	//*current_out *= sampling_period_s;
-}
-
-void integration_simpson(float array[][3], int array_length, float *voltage_out, float *current_out)
-{
-	// Requires even number of intervals, meaning array length with odd value and greater than 3
-	// Array length has size 2^N, N integer, meaning even
-	// Consider array length - 1 for Simpson and add last point considering Riemann sum trapezoidal
-	// Initialize with first and second values of simpson method
-	// initial value = 1st simpson      +         2nd simpson          + last value or simpson, array[N - 2]
-
-	printf("\nSimpson\n");
-	*voltage_out = squared(array[0][0]) + (4.0 * squared(array[1][0])) + squared(array[array_length - 2][0]);
-	*current_out = squared(array[0][1]) + (4.0 * squared(array[1][1])) + squared(array[array_length - 2][1]);
-
-	for (int i = 2; i < array_length - 2; )
-	{
-		// Even positions
-		*voltage_out += 2.0 * squared(array[i][0]);
-		*current_out += 2.0 * squared(array[i][1]);
-
-		i++;
-
-		// Odd positions
-		*voltage_out += 4.0 * squared(array[i][0]);
-		*current_out += 4.0 * squared(array[i][1]);
-
-		i++;
-	}
-
-	*voltage_out /= 3.0;
-	*current_out /= 3.0;
-
-	// Last point considering Reimann Trapezoidal sum
-	// For RMS calculation will be divided by period, canceling the sampling_period_us
-	*voltage_out += (squared(array[array_length - 2][0]) + squared(array[array_length - 2][0])) / 2.0;
-	*current_out += (squared(array[array_length - 2][1]) + squared(array[array_length - 1][1])) / 2.0;
-
 	// For RMS calculation will be divided by period, canceling the sampling_period_us
 //	*voltage_out *= sampling_period_s;
 //	*current_out *= sampling_period_s;
@@ -1341,7 +1265,7 @@ void app_main()
 
 printf("\nSingle ADC sample");
 long start = micros();
-uint32_t result = esp_adc_cal_raw_to_voltage(adc1_get_raw((adc1_channel_t) channel_v), adc_chars);
+int result = adc1_get_raw((adc1_channel_t) channel_v);
 long end = micros();
 printf("\n%ld", end - start);
 //return;
@@ -1394,7 +1318,7 @@ printf("\n%ld", end - start);
 		phase_a.power_apparent = phase_a.voltage.rms * phase_a.current.rms;
 		// end RMS
 
-#if 1
+#if 0
 		for (int i = 0; i < n_array_copy_length; i++)
 		{
 			printf("%08.4f %08.4f %08.4f\n", phase_copy[i][0], phase_copy[i][1], phase_copy[i][2]);
