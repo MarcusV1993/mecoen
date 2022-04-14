@@ -63,7 +63,7 @@
 
 ////// definitions ADC sampling
 #define SAMPLING_FREQUENCY 1250
-#define NO_OF_SAMPLES   2          //Multisampling
+#define NO_OF_SAMPLES   1          //Multisampling
 ////// end definitions ADC sampling
 
 ////// definitions ADC voltage sensor parameters

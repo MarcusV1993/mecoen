@@ -1017,7 +1017,7 @@ fft_continuous(void *arg)
 	Circuit_phase *phase = (Circuit_phase *) arg;
 	int i;
 
-
+	char buff[128];
 	while(1)
 	{
 		ulTaskNotifyTakeIndexed(INDEX_TO_WATCH, pdTRUE, portMAX_DELAY); // Wait for adc task to fill array
@@ -1031,29 +1031,28 @@ fft_continuous(void *arg)
 		}
 
 
-		fft_function(&phase->voltage);
-		fft_function(&phase->current);
-
+		fft_function(&(phase->voltage));
+		fft_function(&(phase->current));
+#if 1
 		printf("\n");
-		for (i = 0; i < 2*N_ARRAY_LENGTH; i++) {
-			printf("%12.4f %12.4f\n", phase->voltage.y_cf[i], phase->current.y_cf[i]);
+		for (i = 0; i < N_ARRAY_LENGTH / 2; i++) {
+			sprintf(buff, "%12.4f %12.4f %12.4f %12.4f\n", phase->voltage.y_cf[i * 2], phase->voltage.y_cf[(i * 2) + 1], phase->current.y_cf[i * 2], phase->current.y_cf[(i * 2) + 1]);
+			printf("%s", buff);
 		}
 		printf("\n");
+#elif 0
+		for (i = 0 ; i < N_ARRAY_LENGTH / 2 ; i++) {
+			phase->voltage.y_cf[i] = 10 * log10f((phase->voltage.y_cf[i * 2 + 0] * phase->voltage.y_cf[i * 2 + 0] + phase->voltage.y_cf[i * 2 + 1] * phase->voltage.y_cf[i * 2 + 1])/N_ARRAY_LENGTH);
+			phase->current.y_cf[i] = 10 * log10f((phase->current.y_cf[i * 2 + 0] * phase->current.y_cf[i * 2 + 0] + phase->current.y_cf[i * 2 + 1] * phase->current.y_cf[i * 2 + 1])/N_ARRAY_LENGTH);
+		}
 
-//		for (i = 0 ; i < N_ARRAY_LENGTH/2 ; i++) {
-//			phase->voltage.y_cf[i] = 10 * log10f((phase->voltage.y_cf[i * 2 + 0] * phase->voltage.y_cf[i * 2 + 0] + phase->voltage.y_cf[i * 2 + 1] * phase->voltage.y_cf[i * 2 + 1])/N_ARRAY_LENGTH);
-//			phase->current.y_cf[i] = 10 * log10f((phase->current.y_cf[i * 2 + 0] * phase->current.y_cf[i * 2 + 0] + phase->current.y_cf[i * 2 + 1] * phase->current.y_cf[i * 2 + 1])/N_ARRAY_LENGTH);
-//		}
-
-//	    ESP_LOGW("FFT", "Voltage");
-//	    dsps_view(phase->voltage.y_cf, N_ARRAY_LENGTH / 2, 64, 10,  -60, 40, '|');
+		// Voltage
+	    ESP_LOGW("FFT", "Voltage");
+	    dsps_view(phase->voltage.y_cf, N_ARRAY_LENGTH / 2, 64, 10,  0, 90, '|');
 		// Current
-//		ESP_LOGW("FFT", "Current");
-//		dsps_view(phase->current.y_cf, N_ARRAY_LENGTH / 2, 64, 10,  -60, 40, '|');
-		// Power
-//	    ESP_LOGW("FFT", "Power");
-//		dsps_view(phase->power.y_cf, SAMPLING_FREQUENCY / 2, 64, 10,  -60, 40, '|');
-
+		ESP_LOGW("FFT", "Current");
+		dsps_view(phase->current.y_cf, N_ARRAY_LENGTH / 2, 64, 10,  0, 90, '|');
+#endif
 //	    printf("FP = %.2f ", cos(phase->power_factor));
 //	    if (phase->power_factor >= 0)
 //	    {
