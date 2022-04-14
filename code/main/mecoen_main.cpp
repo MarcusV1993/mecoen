@@ -164,9 +164,8 @@
 // const
 //// const ADC
 ////// const ADC period
-static constexpr float sampling_period_s = 1 / SAMPLING_FREQUENCY;
 static constexpr int SAMPLING_PERIOD_US = (1e6 / SAMPLING_FREQUENCY); // Real sampling frequency slightly lower than 1e6/SAMPLING_PERIOD_US
-static constexpr float sampling_frequency = 1e6 / SAMPLING_PERIOD_US;
+static constexpr float sampling_frequency_given_constraints = 1e6 / SAMPLING_PERIOD_US;
 ////// end const ADC period
 
 ////// const ADC ports and configuration
@@ -189,6 +188,7 @@ static constexpr float sct013_calibration = (SCT013_NUMBER_TURNS / SCT013_BURDEN
 
 
 //// const time
+static constexpr int ticks_sampling_period = pdMS_TO_TICKS(SAMPLING_PERIOD_US / 1e3) + 1; // Adds a tick to guarantee it's greater than the number of ticks in a sampling period
 static const char *TAG_TIME = "mecoen_time";
 //// end const time
 
@@ -223,6 +223,10 @@ static TaskHandle_t task_adc = NULL;
 #if _MECOEN_FFT
 static TaskHandle_t  task_fft = NULL;
 #endif
+
+static SemaphoreHandle_t semaphore_adc_interrupt = NULL; // Semaphore to synchronize ADC with interrupt routine
+StaticSemaphore_t semaphore_adc_interrupt_buffer;
+
 static SemaphoreHandle_t semaphore_adc_main;
 static SemaphoreHandle_t semaphore_adc, semaphore_fft;
 //// end global variables semaphores
@@ -534,85 +538,99 @@ init_adc()
 }
 
 
+static bool IRAM_ATTR sampling_interrupt(gptimer_handle_t timer, const gptimer_alarm_event_data_t *edata, void *user_data)
+{
+    BaseType_t high_task_awoken = pdFALSE;
+
+    xSemaphoreGiveFromISR(semaphore_adc_interrupt, &high_task_awoken);
+
+    return (high_task_awoken = pdTRUE);
+}
+
 void
 read_phase(void *arg)
 {
 	printf("\nread_phase initiated!\n");
 	Circuit_phase *phase = (Circuit_phase *) arg;
-	phase->voltage.rms = phase->voltage.rms_previous = 0.0;
-
-	TickType_t xLastWakeTime = xTaskGetTickCount();
-
-	float zmpt101b_vdc_local = 0.0;
-	float sct013_vdc_local = 0.0;
-
-	int readings[2];
+	float zmpt101b_vdc_local = 0.0; // To store locally the average value of the signal
+	float sct013_vdc_local = 0.0; // To store locally the average value of the signal
+	int measurement[2]; // Store current measured value from ADC
 	int sample_num = 0;
 
-	// Calculate the average DC value of each sensor
-	for (sample_num = 0; sample_num < N_ARRAY_LENGTH; sample_num++)
-	{
-		// Reading ADC
-		readings[0] = adc1_get_raw((adc1_channel_t) channel_v);
-		readings[1] = adc1_get_raw((adc1_channel_t) channel_i);
 
-		// Multisampling
-		for (int i = 1; i < NO_OF_SAMPLES; i++)
-		{
-			readings[0] += adc1_get_raw((adc1_channel_t) channel_v);
-			readings[1] += adc1_get_raw((adc1_channel_t) channel_i);
+	semaphore_adc_interrupt = xSemaphoreCreateBinaryStatic(&semaphore_adc_interrupt_buffer); // Initiate semaphore to synchronize ADC with timer
+
+
+	// Timer set-up
+	ESP_LOGI("ADC_TIMER", "Create timer handle");
+	gptimer_handle_t gptimer = NULL;
+	gptimer_config_t timer_config = {
+		.clk_src = GPTIMER_CLK_SRC_APB,
+		.direction = GPTIMER_COUNT_UP,
+		.resolution_hz = 1000000, // 1MHz, 1 tick=1us
+		.flags = {
+			.intr_shared = 1
 		}
-		// end Reading ADC
+	};
+	ESP_ERROR_CHECK(gptimer_new_timer(&timer_config, &gptimer));
 
-		//Convert adc_reading to voltage in mV
-		phase->voltage.samples[sample_num] = (float) esp_adc_cal_raw_to_voltage((uint32_t) (readings[0] / NO_OF_SAMPLES), adc_chars);
-		phase->current.samples[sample_num] = (float) esp_adc_cal_raw_to_voltage((uint32_t) (readings[1] / NO_OF_SAMPLES), adc_chars);
-		zmpt101b_vdc_local += phase->voltage.samples[sample_num];
-		sct013_vdc_local += phase->current.samples[sample_num];
-	}
-	zmpt101b_vdc_local /= N_ARRAY_LENGTH;
-	sct013_vdc_local /= N_ARRAY_LENGTH;
-	zmpt101b_vdc = zmpt101b_vdc_local;
-	sct013_vdc = sct013_vdc_local;
+	gptimer_event_callbacks_t cbs = {
+		.on_alarm = sampling_interrupt,
+	};
+	ESP_ERROR_CHECK(gptimer_register_event_callbacks(gptimer, &cbs, NULL));
+
+	gptimer_alarm_config_t alarm_config = {
+		.alarm_count = SAMPLING_PERIOD_US,
+		.reload_count = 0,
+		.flags = {
+			.auto_reload_on_alarm = true
+		}
+	};
+	ESP_ERROR_CHECK(gptimer_set_alarm_action(gptimer, &alarm_config));
+
+	ESP_ERROR_CHECK(gptimer_set_raw_count(gptimer, 0));
+
+	// end Timer set-up
 
 
 	while(1)
 	{
-		int average_time = 0;
 		sample_num = 0;
-        xTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(1000));
+
+		// ADC average value for each input is calculated every sampling time the array is filled
+		zmpt101b_vdc_local = 0.0;
+		sct013_vdc_local = 0.0;
+
+		// Reset and restart timer
+		ESP_ERROR_CHECK(gptimer_set_raw_count(gptimer, 0));
+		ESP_ERROR_CHECK(gptimer_start(gptimer));
 		while (sample_num < N_ARRAY_LENGTH)
 		{
-			// Remove last read value from moving average DC
-			zmpt101b_vdc_local -= phase->voltage.samples[sample_num] / N_ARRAY_LENGTH;
-			sct013_vdc_local -= phase->current.samples[sample_num] / N_ARRAY_LENGTH;
+			// Wait for semaphore from interrupt
+			xSemaphoreTake(semaphore_adc_interrupt, ticks_sampling_period);
 
-			int start = micros();
-			// Reading ADC
-			readings[0] = adc1_get_raw((adc1_channel_t) channel_v);
-			readings[1] = adc1_get_raw((adc1_channel_t) channel_i);
 
-//			readings[1] += adc1_get_raw((adc1_channel_t) channel_i);
-//			readings[0] += adc1_get_raw((adc1_channel_t) channel_v);
+			// Reading ADC and conversion to sum of volts
+			measurement[0] = esp_adc_cal_raw_to_voltage(adc1_get_raw((adc1_channel_t) channel_v), adc_chars);
+			measurement[1] = esp_adc_cal_raw_to_voltage(adc1_get_raw((adc1_channel_t) channel_i), adc_chars);
+
 			// Multisampling
 			for (int i = 1; i < NO_OF_SAMPLES; i++)
 			{
-				readings[0] += adc1_get_raw((adc1_channel_t) channel_v);
-				readings[1] += adc1_get_raw((adc1_channel_t) channel_i);
+				measurement[0] += esp_adc_cal_raw_to_voltage(adc1_get_raw((adc1_channel_t) channel_v), adc_chars);
+				measurement[1] += esp_adc_cal_raw_to_voltage(adc1_get_raw((adc1_channel_t) channel_i), adc_chars);
 			}
-			// end Reading ADC
-			average_time += micros() - start;
 
-			//Convert adc_reading to voltage in mV
-			phase->voltage.samples[sample_num] = (float) esp_adc_cal_raw_to_voltage(readings[0] / NO_OF_SAMPLES, adc_chars);
-			phase->current.samples[sample_num] = (float) esp_adc_cal_raw_to_voltage(readings[1] / NO_OF_SAMPLES, adc_chars);
+
+			// Average of voltage measurements
+			phase->voltage.samples[sample_num] = (float)measurement[0] / NO_OF_SAMPLES;
+			phase->current.samples[sample_num] = (float)measurement[1] / NO_OF_SAMPLES;
+
 
 			// Add newest read value to moving average DC
-			zmpt101b_vdc_local += phase->voltage.samples[sample_num] / N_ARRAY_LENGTH;
-			sct013_vdc_local += phase->current.samples[sample_num] / N_ARRAY_LENGTH;
+			zmpt101b_vdc_local += phase->voltage.samples[sample_num];
+			sct013_vdc_local += phase->current.samples[sample_num];
 
-			zmpt101b_vdc = zmpt101b_vdc_local;
-			sct013_vdc   = sct013_vdc_local;
 
 #if 0
 			// Remove DC bias
@@ -626,11 +644,20 @@ read_phase(void *arg)
 
 			sample_num++;
 
-			delayMicroseconds(SAMPLING_PERIOD_US);
 		}
-		printf("\naverage time = %d\n", average_time / N_ARRAY_LENGTH);
+		// Stop timer interrupt after acquiring filling the array
+	    ESP_ERROR_CHECK(gptimer_stop(gptimer));
+
+
+	    // Copy new average to dc value
+		zmpt101b_vdc = zmpt101b_vdc_local / N_ARRAY_LENGTH;
+		sct013_vdc   = sct013_vdc_local / N_ARRAY_LENGTH;
+
+
+		// Semaphore to main so it can copy the values
 		xSemaphoreGive(semaphore_adc_main);
-		vTaskDelay(1);
+
+		// Semaphore from main that values have been copied
 		xSemaphoreTake(semaphore_adc, ticks_1s);
 	}
 }
@@ -1263,12 +1290,6 @@ void app_main()
 #endif
 	// end Initializers
 
-printf("\nSingle ADC sample");
-long start = micros();
-int result = adc1_get_raw((adc1_channel_t) channel_v);
-long end = micros();
-printf("\n%ld", end - start);
-//return;
 	// Take semaphore to sync FFT and ADC tasks
 //	xSemaphoreTake(semaphore_fft, portMAX_DELAY);
 //	xSemaphoreTake(semaphore_adc, portMAX_DELAY);
@@ -1318,7 +1339,7 @@ printf("\n%ld", end - start);
 		phase_a.power_apparent = phase_a.voltage.rms * phase_a.current.rms;
 		// end RMS
 
-#if 0
+#if 1
 		for (int i = 0; i < n_array_copy_length; i++)
 		{
 			printf("%08.4f %08.4f %08.4f\n", phase_copy[i][0], phase_copy[i][1], phase_copy[i][2]);

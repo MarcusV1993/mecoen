@@ -38,7 +38,7 @@ enum integration_type{rectangle = 0, trapezoidal = 1, simpson = 2};
 
 
 //// definitions common
-#define N_POWER_OF_TWO 11 // (N_ARRAY_LENGTH = 2^11 = 2048)
+#define N_POWER_OF_TWO 10 // (N_ARRAY_LENGTH = 2^10 = 1024)
 #define N_ARRAY_LENGTH (1 << N_POWER_OF_TWO) // Must be power of 2
 #define REASON 4
 //// end definitions common
@@ -63,8 +63,8 @@ enum integration_type{rectangle = 0, trapezoidal = 1, simpson = 2};
 ////// end definitions ADC peripheral reference voltage
 
 ////// definitions ADC sampling
-#define SAMPLING_FREQUENCY 5000
-#define NO_OF_SAMPLES   1          //Multisampling
+#define SAMPLING_FREQUENCY 1250
+#define NO_OF_SAMPLES   2          //Multisampling
 ////// end definitions ADC sampling
 
 ////// definitions ADC voltage sensor parameters
