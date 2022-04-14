@@ -21,7 +21,7 @@
 //// definitions configurations
 #define _MECOEN_NUM_PHASES_ 1
 #define _MECOEN_INTEGRATION_TYPE_ (1 << 1) // integration type by shift: 1: trapezoidal | 2: simpson | different value: rectangle
-#define _MECOEN_FFT_ 0 							// 0: Doesn't run FFT | 1: Run FFT
+#define _MECOEN_FFT_ 1 							// 0: Doesn't run FFT | 1: Run FFT
 #define _MECOEN_DS3231_ 0
 #define _MECOEN_STORAGE_ 0
 //// definitions configurations
@@ -32,16 +32,15 @@
 //// end definitions macros
 
 
-//// definitions enums
-enum integration_type{rectangle = 0, trapezoidal = 1, simpson = 2};
-//// end definitions enums
-
-
 //// definitions common
 #define N_POWER_OF_TWO 10 // (N_ARRAY_LENGTH = 2^10 = 1024)
 #define N_ARRAY_LENGTH (1 << N_POWER_OF_TWO) // Must be power of 2
 #define REASON 4
 //// end definitions common
+
+//// definitions freertos tasks
+#define INDEX_TO_WATCH 1
+//// end definitions freertos tasks
 
 
 //// definitions time

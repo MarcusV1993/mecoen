@@ -220,7 +220,7 @@ static float phase_copy[n_array_copy_length][3];
 
 //// global variables semaphores task handles
 static TaskHandle_t task_adc = NULL;
-#if _MECOEN_FFT
+#if _MECOEN_FFT_
 static TaskHandle_t  task_fft = NULL;
 #endif
 
@@ -228,7 +228,7 @@ static SemaphoreHandle_t semaphore_adc_interrupt = NULL; // Semaphore to synchro
 StaticSemaphore_t semaphore_adc_interrupt_buffer;
 
 static SemaphoreHandle_t semaphore_adc_main;
-static SemaphoreHandle_t semaphore_adc, semaphore_fft;
+static SemaphoreHandle_t semaphore_adc;
 //// end global variables semaphores
 
 
@@ -659,6 +659,12 @@ read_phase(void *arg)
 
 		// Semaphore from main that values have been copied
 		xSemaphoreTake(semaphore_adc, ticks_1s);
+
+		// Task Handle to allow FFT function to sync access to common resource
+		xTaskNotifyGiveIndexed(task_fft, INDEX_TO_WATCH);
+
+		// Task Handle to await the conclusion
+		ulTaskNotifyTakeIndexed(INDEX_TO_WATCH, pdTRUE, ticks_1s);
 	}
 }
 //// end functions ADC
@@ -1001,140 +1007,49 @@ fft_function(Signal *signal)
 	dsps_bit_rev_fc32(signal->y_cf, N_ARRAY_LENGTH);
 	// Convert one complex vector to two complex vectors
 	dsps_cplx2reC_fc32(signal->y_cf, N_ARRAY_LENGTH);
-
-	signal->mag_phase.mag = 0.0;
-	int max_magnitude_index = 0;
-	float max_magnitude = 0.0, magnitude_k = 0.0;
-	for (int k = 0; k < N_ARRAY_LENGTH / 2; k++)
-	{
-		magnitude_k = ((signal->y_cf[k * 2] * signal->y_cf[k * 2]) + (signal->y_cf[(k * 2) + 1] * signal->y_cf[(k * 2) + 1])) / SAMPLING_FREQUENCY;
-		signal->mag_phase.mag += magnitude_k;
-		if (magnitude_k > max_magnitude)
-		{
-			max_magnitude = magnitude_k;
-			max_magnitude_index = k;
-		}
-        signal->y_cf[k] = 10 * log10f(magnitude_k);
-	}
-	signal->mag_phase.phase_max_mag = atan2((double) signal->y_cf[max_magnitude_index + 1], (double) signal->y_cf[max_magnitude_index]);
 }
 
-void
-fft_circuit_phase(Circuit_phase *phase)
-{
-	// Voltage, Current, Power
-	int   max_magnitude_index[3] = {  0,   0,   0};
-	float       max_magnitude[3] = {0.0, 0.0, 0.0};
-	float         magnitude_k[3] = {0.0, 0.0, 0.0};
-
-	// Voltage
-	fft_function(&phase->voltage);
-
-	// Current
-	fft_function(&phase->current);
-
-	// Power
-	fft_function(&phase->power);
-
-	phase->voltage.mag_phase.mag = 0.0;
-	phase->current.mag_phase.mag = 0.0;
-	  phase->power.mag_phase.mag = 0.0;
-	for (int k = 0; k < N_ARRAY_LENGTH / 2; k++) {
-		// Voltage
-		magnitude_k[0] = ((phase->voltage.y_cf[k * 2] * phase->voltage.y_cf[k * 2]) + (phase->voltage.y_cf[(k * 2) + 1] * phase->voltage.y_cf[(k * 2) + 1])) / SAMPLING_FREQUENCY;
-		phase->voltage.mag_phase.mag += magnitude_k[0];
-		if (magnitude_k[0] > max_magnitude[0])
-		{
-			max_magnitude[0] = magnitude_k[0];
-			max_magnitude_index[0] = k;
-		}
-		phase->voltage.y_cf[k] = 10 * log10f(magnitude_k[0]);
-
-		// Current
-		magnitude_k[1] = ((phase->current.y_cf[k * 2] * phase->current.y_cf[k * 2]) + (phase->current.y_cf[(k * 2) + 1] * phase->current.y_cf[(k * 2) + 1])) / SAMPLING_FREQUENCY;
-		phase->current.mag_phase.mag += magnitude_k[1];
-		if (magnitude_k[1] > max_magnitude[1])
-		{
-			max_magnitude[1] = magnitude_k[1];
-			max_magnitude_index[1] = k;
-		}
-		phase->current.y_cf[k] = 10 * log10f(magnitude_k[1]);
-
-		// Power
-		magnitude_k[2] = ((phase->power.y_cf[k * 2] * phase->power.y_cf[k * 2]) + (phase->power.y_cf[(k * 2) + 1] * phase->power.y_cf[(k * 2) + 1])) / SAMPLING_FREQUENCY;
-		phase->power.mag_phase.mag += magnitude_k[2];
-		if (magnitude_k[2] > max_magnitude[2])
-		{
-			max_magnitude[2] = magnitude_k[2];
-			max_magnitude_index[2] = k;
-		}
-		phase->power.y_cf[k] = 10 * log10f(magnitude_k[2]);
-	}
-	// Voltage
-	phase->voltage.mag_phase.phase_max_mag = atan2((double) phase->voltage.y_cf[max_magnitude_index[0] + 1], \
-													(double) phase->voltage.y_cf[max_magnitude_index[0]]);
-
-	// Current
-	phase->current.mag_phase.phase_max_mag = atan2((double) phase->current.y_cf[max_magnitude_index[1] + 1], \
-													(double) phase->current.y_cf[max_magnitude_index[1]]);
-
-	// Power
-	phase->power.mag_phase.phase_max_mag = atan2((double) phase->power.y_cf[max_magnitude_index[2] + 1], \
-													(double) phase->power.y_cf[max_magnitude_index[2]]);
-
-	phase->power_factor = phase->power.mag_phase.phase_max_mag - phase->voltage.mag_phase.phase_max_mag;
-	if (phase->power_factor >= 2 * M_PI)
-	{
-		phase->power_factor -= 2 * M_PI;
-	}
-	else if (phase->power_factor <= -2 * M_PI)
-	{
-		phase->power_factor += 2 * M_PI;
-	}
-}
 
 void
 fft_continuous(void *arg)
 {
 	printf("\nread_fft task initialized!\n");
 	Circuit_phase *phase = (Circuit_phase *) arg;
-//	uint32_t ret = 0;
-
 	int i;
 
-//	xTaskNotifyStateClearIndexed( NULL, indexToWaitOn );
-//	configASSERT(task_adc != NULL);
 
 	while(1)
 	{
-//		ret = ulTaskNotifyTakeIndexed(indexToWaitOn, pdFALSE, portMAX_DELAY/*pdMS_TO_TICKS(5000)*/); // Wait for adc task to fill array
-		xSemaphoreTake(semaphore_fft, portMAX_DELAY);
-//printf("\nFFT received task\n");
+		ulTaskNotifyTakeIndexed(INDEX_TO_WATCH, pdTRUE, portMAX_DELAY); // Wait for adc task to fill array
 		for (i = 0; i < N_ARRAY_LENGTH; i++)
 		{
-			phase->voltage.y_cf[2 * i] = phase->voltage.samples[i] * wind[i];
-			phase->voltage.y_cf[(2 * i) + 1] = 0; // Real signal has imaginary part 0
+			phase->voltage.y_cf[i * 2] = phase->voltage.samples[i] * wind[i];
+			phase->voltage.y_cf[(i * 2) + 1] = 0; // Real signal has imaginary part 0
 
-			phase->current.y_cf[2 * i] = phase->current.samples[i] * wind[i];
-			phase->current.y_cf[(2 * i) + 1] = 0; // Real signal has imaginary part 0
-
-			phase->power.y_cf[2 * i] = phase->power.samples[i] * wind[i];
-			phase->power.y_cf[(2 * i) + 1] = 0; // Real signal has imaginary part 0
+			phase->current.y_cf[i * 2] = phase->current.samples[i] * wind[i];
+			phase->current.y_cf[(i * 2) + 1] = 0; // Real signal has imaginary part 0
 		}
-		xSemaphoreGive(semaphore_adc);
-//		xTaskNotifyGiveIndexed(task_adc, indexToWaitOn); // Notify adc task that array has been copied
-//printf("\nFFT give task\n");
+
 
 		fft_function(&phase->voltage);
-//		printf("voltage Mag: %f Phase:%f\n", phase->voltage.mag_phase.mag, phase->voltage.mag_phase.phase_max_mag);
 		fft_function(&phase->current);
-//		printf("current Mag: %f Phase:%f\n", phase->current.mag_phase.mag, phase->current.mag_phase.phase_max_mag);
-		// Voltage
+
+		printf("\n");
+		for (i = 0; i < 2*N_ARRAY_LENGTH; i++) {
+			printf("%12.4f %12.4f\n", phase->voltage.y_cf[i], phase->current.y_cf[i]);
+		}
+		printf("\n");
+
+//		for (i = 0 ; i < N_ARRAY_LENGTH/2 ; i++) {
+//			phase->voltage.y_cf[i] = 10 * log10f((phase->voltage.y_cf[i * 2 + 0] * phase->voltage.y_cf[i * 2 + 0] + phase->voltage.y_cf[i * 2 + 1] * phase->voltage.y_cf[i * 2 + 1])/N_ARRAY_LENGTH);
+//			phase->current.y_cf[i] = 10 * log10f((phase->current.y_cf[i * 2 + 0] * phase->current.y_cf[i * 2 + 0] + phase->current.y_cf[i * 2 + 1] * phase->current.y_cf[i * 2 + 1])/N_ARRAY_LENGTH);
+//		}
+
 //	    ESP_LOGW("FFT", "Voltage");
-//	    dsps_view(phase->voltage.y_cf, SAMPLING_FREQUENCY / 2, 64, 10,  -60, 40, '|');
+//	    dsps_view(phase->voltage.y_cf, N_ARRAY_LENGTH / 2, 64, 10,  -60, 40, '|');
 		// Current
 //		ESP_LOGW("FFT", "Current");
-//		dsps_view(phase->current.y_cf, SAMPLING_FREQUENCY / 2, 64, 10,  -60, 40, '|');
+//		dsps_view(phase->current.y_cf, N_ARRAY_LENGTH / 2, 64, 10,  -60, 40, '|');
 		// Power
 //	    ESP_LOGW("FFT", "Power");
 //		dsps_view(phase->power.y_cf, SAMPLING_FREQUENCY / 2, 64, 10,  -60, 40, '|');
@@ -1148,7 +1063,7 @@ fft_continuous(void *arg)
 //	    {
 //	    	printf("Cap\n");
 //	    }
-		vTaskDelay(10);
+		xTaskNotifyGiveIndexed(task_adc, INDEX_TO_WATCH);
 	}
 }
 //// functions FFT
@@ -1328,6 +1243,7 @@ void app_main()
 		{
 			phase_copy[i][0] = phase_a.voltage.samples[i] - zmpt101b_vdc;
 			phase_copy[i][1] = phase_a.current.samples[i] - sct013_vdc;
+//			phase_copy[i][2] = phase_copy[i][0] * phase_copy[i][1];
 		}
 		xSemaphoreGive(semaphore_adc);
 		// end data copy
@@ -1339,7 +1255,7 @@ void app_main()
 		phase_a.power_apparent = phase_a.voltage.rms * phase_a.current.rms;
 		// end RMS
 
-#if 1
+#if 0
 		for (int i = 0; i < n_array_copy_length; i++)
 		{
 			printf("%08.4f %08.4f %08.4f\n", phase_copy[i][0], phase_copy[i][1], phase_copy[i][2]);
@@ -1347,12 +1263,12 @@ void app_main()
 			vTaskDelay(10 / portTICK_RATE_MS);
 		}
 #endif
-		printf("\nVrms = %06.2f; Irms = %06.2f; P = %06.2f\n", phase_a.voltage.rms, phase_a.current.rms, phase_a.power_apparent);
+//		printf("\nVrms = %06.2f; Irms = %06.2f; P = %06.2f\n", phase_a.voltage.rms, phase_a.current.rms, phase_a.power_apparent);
 
 		phase_a.voltage.rms = phase_a.voltage.rms_previous;
 		phase_a.current.rms = phase_a.current.rms_previous;
 
-		printf("\n\n");
+//		printf("\n\n");
 		fflush(stdout);
     }
 
