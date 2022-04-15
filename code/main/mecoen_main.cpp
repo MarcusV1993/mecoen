@@ -556,6 +556,7 @@ read_phase(void *arg)
 	float sct013_vdc_local = 0.0; // To store locally the average value of the signal
 	int measurement[2]; // Store current measured value from ADC
 	int sample_num = 0;
+	unsigned long sampling_time, start;
 
 
 	semaphore_adc_interrupt = xSemaphoreCreateBinaryStatic(&semaphore_adc_interrupt_buffer); // Initiate semaphore to synchronize ADC with timer
@@ -601,6 +602,8 @@ read_phase(void *arg)
 		zmpt101b_vdc_local = 0.0;
 		sct013_vdc_local = 0.0;
 
+		sampling_time = 0;
+		start = micros();
 		// Reset and restart timer
 		ESP_ERROR_CHECK(gptimer_set_raw_count(gptimer, 0));
 		ESP_ERROR_CHECK(gptimer_start(gptimer));
@@ -608,6 +611,8 @@ read_phase(void *arg)
 		{
 			// Wait for semaphore from interrupt
 			xSemaphoreTake(semaphore_adc_interrupt, ticks_sampling_period);
+			sampling_time += micros() - start;
+			start = micros();
 
 
 			// Reading ADC and conversion to sum of volts
@@ -648,6 +653,7 @@ read_phase(void *arg)
 		// Stop timer interrupt after acquiring filling the array
 	    ESP_ERROR_CHECK(gptimer_stop(gptimer));
 
+	    printf("\nsampling period: %lu\n", sampling_time / N_ARRAY_LENGTH);
 
 	    // Copy new average to dc value
 		zmpt101b_vdc = zmpt101b_vdc_local / N_ARRAY_LENGTH;
