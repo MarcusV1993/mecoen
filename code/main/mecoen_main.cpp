@@ -334,24 +334,6 @@ void IRAM_ATTR delayMicroseconds(uint32_t us)
 }
 
 
-double
-ojGetTimeSec()
-{
-	int64_t t = esp_timer_get_time();
-	double t_seconds = (double) t / 1000000.0;
-
-	return (t_seconds);
-}
-
-
-void
-ojSleepMsec(double miliseconds)
-{
-	double t = ojGetTimeSec();
-    while ((ojGetTimeSec() - t) < (miliseconds / 1000.0));
-}
-
-
 ////// functions time ntp
 #ifdef CONFIG_SNTP_TIME_SYNC_METHOD_CUSTOM
 void sntp_sync_time(struct timeval *tv)
@@ -540,11 +522,30 @@ init_adc()
 
 static bool IRAM_ATTR sampling_interrupt(gptimer_handle_t timer, const gptimer_alarm_event_data_t *edata, void *user_data)
 {
+// REMEMBER TO INITIALIZE SAMPLE_NUM TO 0
+// REMEMBER TO INITIALIZE SAMPLE_NUM TO 0
     BaseType_t high_task_awoken = pdFALSE;
+    int *sample_num = (int *)user_data;
+    static int i;
 
-    xSemaphoreGiveFromISR(semaphore_adc_interrupt, &high_task_awoken);
+    phase_a.voltage.samples[*sample_num] = esp_adc_cal_raw_to_voltage(adc1_get_raw((adc1_channel_t) channel_v), adc_chars);
+    phase_a.current.samples[*sample_num] = esp_adc_cal_raw_to_voltage(adc1_get_raw((adc1_channel_t) channel_i), adc_chars);
 
-    return (high_task_awoken = pdTRUE);
+    for(i = 0; i < NO_OF_SAMPLES; i++)
+    {
+    	phase_a.voltage.samples[*sample_num] += esp_adc_cal_raw_to_voltage(adc1_get_raw((adc1_channel_t) channel_v), adc_chars);
+		phase_a.current.samples[*sample_num] += esp_adc_cal_raw_to_voltage(adc1_get_raw((adc1_channel_t) channel_i), adc_chars);
+    }
+
+    (*sample_num)++;
+    if ((*sample_num) >= N_ARRAY_LENGTH)
+    {
+    	gptimer_stop(timer);
+    	*sample_num = 0;
+    	xSemaphoreGiveFromISR(semaphore_adc_interrupt, &high_task_awoken);
+    }
+
+    return (high_task_awoken == pdTRUE);
 }
 
 void
@@ -554,9 +555,10 @@ read_phase(void *arg)
 	Circuit_phase *phase = (Circuit_phase *) arg;
 	float zmpt101b_vdc_local = 0.0; // To store locally the average value of the signal
 	float sct013_vdc_local = 0.0; // To store locally the average value of the signal
-	int measurement[2]; // Store current measured value from ADC
 	int sample_num = 0;
-	unsigned long sampling_time, start;
+	int ticks_fill_sampling_array = pdMS_TO_TICKS(N_ARRAY_LENGTH * SAMPLING_PERIOD_US / 1000) + 2;
+	unsigned long start;
+	float sampling_frequency = 0.0;
 
 
 	semaphore_adc_interrupt = xSemaphoreCreateBinaryStatic(&semaphore_adc_interrupt_buffer); // Initiate semaphore to synchronize ADC with timer
@@ -578,7 +580,7 @@ read_phase(void *arg)
 	gptimer_event_callbacks_t cbs = {
 		.on_alarm = sampling_interrupt,
 	};
-	ESP_ERROR_CHECK(gptimer_register_event_callbacks(gptimer, &cbs, NULL));
+	ESP_ERROR_CHECK(gptimer_register_event_callbacks(gptimer, &cbs, &sample_num));
 
 	gptimer_alarm_config_t alarm_config = {
 		.alarm_count = SAMPLING_PERIOD_US,
@@ -598,79 +600,56 @@ read_phase(void *arg)
 	{
 		sample_num = 0;
 
-		// ADC average value for each input is calculated every sampling time the array is filled
-		zmpt101b_vdc_local = 0.0;
-		sct013_vdc_local = 0.0;
-
-		sampling_time = 0;
 		start = micros();
+
 		// Reset and restart timer
 		ESP_ERROR_CHECK(gptimer_set_raw_count(gptimer, 0));
 		ESP_ERROR_CHECK(gptimer_start(gptimer));
-		while (sample_num < N_ARRAY_LENGTH)
+
+		if(xSemaphoreTake(semaphore_adc_interrupt, ticks_fill_sampling_array) == pdFALSE)
 		{
-			// Wait for semaphore from interrupt
-			xSemaphoreTake(semaphore_adc_interrupt, ticks_sampling_period);
-			sampling_time += micros() - start;
-			start = micros();
+			printf("\nERROR: ADC hasn't finished sampling\n");
+			ESP_LOGI("ADC", "ADC hasn't finished sampling");
+		}
+		else {
+			sampling_frequency = (micros() - start) / N_ARRAY_LENGTH; // +- effective sampling period
 
-
-			// Reading ADC and conversion to sum of volts
-			measurement[0] = esp_adc_cal_raw_to_voltage(adc1_get_raw((adc1_channel_t) channel_v), adc_chars);
-			measurement[1] = esp_adc_cal_raw_to_voltage(adc1_get_raw((adc1_channel_t) channel_i), adc_chars);
-
-			// Multisampling
-			for (int i = 1; i < NO_OF_SAMPLES; i++)
+			zmpt101b_vdc_local = 0.0;
+			sct013_vdc_local = 0.0;
+			for(int i = 0; i < N_ARRAY_LENGTH; i++)
 			{
-				measurement[0] += esp_adc_cal_raw_to_voltage(adc1_get_raw((adc1_channel_t) channel_v), adc_chars);
-				measurement[1] += esp_adc_cal_raw_to_voltage(adc1_get_raw((adc1_channel_t) channel_i), adc_chars);
-			}
+				phase->voltage.samples[i] /= NO_OF_SAMPLES * 1000; // Convert from mV to V
+				phase->current.samples[i] /= NO_OF_SAMPLES * 1000; // Convert from mV to V
 
-
-			// Average of voltage measurements
-			phase->voltage.samples[sample_num] = (float)measurement[0] / NO_OF_SAMPLES;
-			phase->current.samples[sample_num] = (float)measurement[1] / NO_OF_SAMPLES;
-
-
-			// Add newest read value to moving average DC
-			zmpt101b_vdc_local += phase->voltage.samples[sample_num];
-			sct013_vdc_local += phase->current.samples[sample_num];
-
+				zmpt101b_vdc_local += phase->voltage.samples[i];
+				sct013_vdc_local += phase->current.samples[i];
 
 #if 0
-			// Remove DC bias
-			phase->voltage.samples[sample_num] = phase->voltage.samples[sample_num] - zmpt101b_vdc;
-			phase->current.samples[sample_num] = phase->current.samples[sample_num] - sct013_vdc;
-
 			// Convert real world value
 			phase->voltage.samples[sample_num] *= ZMPT101B_CONSTANT_MULTIPLIER;
 			phase->current.samples[sample_num] *= SCT013_CONSTANT_MULTIPLIER;
 #endif
+			}
 
-			sample_num++;
+		    printf("\nsampling period: %10.0f\n", 1e6 / sampling_frequency);
 
+		    // Copy new average to dc value
+			zmpt101b_vdc = zmpt101b_vdc_local / N_ARRAY_LENGTH;
+			sct013_vdc   = sct013_vdc_local / N_ARRAY_LENGTH;
+
+
+			// Semaphore to main so it can copy the values
+			xSemaphoreGive(semaphore_adc_main);
+
+			// Semaphore from main that values have been copied
+			xSemaphoreTake(semaphore_adc, ticks_1s);
+
+			// Task Handle to allow FFT function to sync access to common resource
+			xTaskNotifyGiveIndexed(task_fft, INDEX_TO_WATCH);
+
+			// Task Handle to await the conclusion
+			ulTaskNotifyTakeIndexed(INDEX_TO_WATCH, pdTRUE, ticks_1s);
 		}
-		// Stop timer interrupt after acquiring filling the array
-	    ESP_ERROR_CHECK(gptimer_stop(gptimer));
-
-	    printf("\nsampling period: %lu\n", sampling_time / N_ARRAY_LENGTH);
-
-	    // Copy new average to dc value
-		zmpt101b_vdc = zmpt101b_vdc_local / N_ARRAY_LENGTH;
-		sct013_vdc   = sct013_vdc_local / N_ARRAY_LENGTH;
-
-
-		// Semaphore to main so it can copy the values
-		xSemaphoreGive(semaphore_adc_main);
-
-		// Semaphore from main that values have been copied
-		xSemaphoreTake(semaphore_adc, ticks_1s);
-
-		// Task Handle to allow FFT function to sync access to common resource
-		xTaskNotifyGiveIndexed(task_fft, INDEX_TO_WATCH);
-
-		// Task Handle to await the conclusion
-		ulTaskNotifyTakeIndexed(INDEX_TO_WATCH, pdTRUE, ticks_1s);
 	}
 }
 //// end functions ADC

@@ -33,7 +33,7 @@
 
 
 //// definitions common
-#define N_POWER_OF_TWO 10 // (N_ARRAY_LENGTH = 2^10 = 1024)
+#define N_POWER_OF_TWO 10 // (N_ARRAY_LENGTH = 2^10 = 1024) | Must be such that time to fill the array must be less than 1s -> 2^N_POWER_OF_TWO < SAMPLING_FREQUENCY
 #define N_ARRAY_LENGTH (1 << N_POWER_OF_TWO) // Must be power of 2
 #define REASON 4
 //// end definitions common
@@ -63,7 +63,7 @@
 
 ////// definitions ADC sampling
 #define SAMPLING_FREQUENCY 1250
-#define NO_OF_SAMPLES   1          //Multisampling
+#define NO_OF_SAMPLES   1          //Multisampling | Value must be greater than 1
 ////// end definitions ADC sampling
 
 ////// definitions ADC voltage sensor parameters
