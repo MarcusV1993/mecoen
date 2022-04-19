@@ -94,6 +94,11 @@
 //// end definitions ADC
 
 
+//// definitions FFT
+#define MECOEN_FFT_LOW_CUT_BINS 3
+//// end definitions FFT
+
+
 //// definitions wi-fi
 ////// definitions wi-fi AP default configuration
 #define MECOEN_WIFI_AP_SSID      "mecoen"
