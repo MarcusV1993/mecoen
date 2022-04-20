@@ -292,20 +292,6 @@ static char message[100];
 
 
 // functions
-//// functions variable initializer
-void
-init_phase()
-{
-	phase_a.voltage.y1_cf = &phase_a.voltage.y_cf[0];
-	phase_a.voltage.y2_cf = &phase_a.voltage.y_cf[N_ARRAY_LENGTH];
-	phase_a.current.y1_cf = &phase_a.current.y_cf[0];
-	phase_a.current.y2_cf = &phase_a.current.y_cf[N_ARRAY_LENGTH];
-	phase_a.power.y1_cf = &phase_a.power.y_cf[0];
-	phase_a.power.y2_cf = &phase_a.power.y_cf[N_ARRAY_LENGTH];
-}
-//// functions variable initializer
-
-
 //// functions time
 unsigned long IRAM_ATTR micros()
 {
@@ -526,13 +512,14 @@ read_phase(void *arg)
 	int sample_num = 0;
 	unsigned long start = 0;
 	float sample_period = 0.0;
-
+	TickType_t xLastWakeTime = xTaskGetTickCount();
 
 	ulTaskNotifyTakeIndexed(INDEX_TO_WATCH, pdTRUE, portMAX_DELAY);
 
 
 	while(1)
 	{
+		vTaskDelayUntil( &xLastWakeTime, ticks_1s );
 		sample_num = 0;
 
 		sample_period = 0.0;
@@ -568,9 +555,8 @@ read_phase(void *arg)
 			sct013_vdc_local += phase->current.samples[i];
 		}
 
-		sample_period /= N_ARRAY_LENGTH; // +- effective sampling period
-		effective_sample_period_us = sample_period;
-		printf("\nsampling period: %10.0f\n", sample_period);
+		effective_sample_period_us = sample_period / (N_ARRAY_LENGTH - 1);
+//		printf("\nsampling period: %10.0f\n", sample_period / (N_ARRAY_LENGTH - 1));
 
 		// Copy new average to dc value
 		zmpt101b_vdc = zmpt101b_vdc_local / N_ARRAY_LENGTH;
@@ -939,14 +925,29 @@ fft_continuous(void *arg)
 	printf("\nread_fft task initialized!\n");
 	Circuit_phase *phase = (Circuit_phase *) arg;
 	int i;
+	int bin_max;
+	float sampling_frequency = 0.0;
+	float signal_frequency_correction = 0.0;
+	float v_rms = 0.0;
+	float i_rms = 0.0;
+	float phase_diff = 0.0;
 
-	char buff[128];
+//	char buff[128];
 
 	ulTaskNotifyTakeIndexed(INDEX_TO_WATCH, pdTRUE, portMAX_DELAY); // Wait for adc task to fill array
 
 	while(1)
 	{
 		ulTaskNotifyTakeIndexed(INDEX_TO_WATCH, pdTRUE, portMAX_DELAY); // Wait for adc task to fill array
+
+		sampling_frequency = 1e6 / effective_sample_period_us;
+//		printf("\n");
+//		for (i = 0; i < N_ARRAY_LENGTH; i++) {
+//			sprintf(buff, "%12.4f %12.4f\n", phase->voltage.samples[i], phase->current.samples[i]);
+//			printf("%s", buff);
+//
+//		}
+
 		for (i = 0; i < N_ARRAY_LENGTH; i++)
 		{
 			phase->voltage.y_cf[i * 2] = phase->voltage.samples[i] * wind[i];
@@ -960,23 +961,99 @@ fft_continuous(void *arg)
 		fft_function(&(phase->voltage));
 		fft_function(&(phase->current));
 
+
+		// Calculate magnitude and phase of the signal saving it to same array
+		// Magnitude from 0 to (N_ARRAY_LENGTH / 2) and phase from N_ARRAY_LENGTH to (N_ARRAY_LENGTH + (N_ARRAY_LENGTH / 2))
 		// Low Cut Filter to remove DC
 		for (i = 0; i < MECOEN_FFT_LOW_CUT_BINS; i++)
 		{
+			// DC filter and store magnitude
 			phase->voltage.y_cf[i * 2] = 0.0;
 			phase->voltage.y_cf[(i * 2) + 1] = 0.0;
+			// Store phase
+			phase->voltage.y_cf[N_ARRAY_LENGTH + i] = 0.0;
 
+			// DC filter and store magnitude
 			phase->current.y_cf[i * 2] = 0.0;
 			phase->current.y_cf[(i * 2) + 1] = 0.0;
+			// Store phase
+			phase->current.y_cf[N_ARRAY_LENGTH + i] = 0.0;
 		}
+#if 1 // Calculate Magnitude and phsae
+		bin_max = i;
+		v_rms = 0.0;
+		i_rms = 0.0;
+		for ( ; i < N_ARRAY_LENGTH / 2; i++)
+		{
+			// Magnitude
+			phase->voltage.y_cf[i] = (phase->voltage.y_cf[i * 2] * phase->voltage.y_cf[i * 2]) + (phase->voltage.y_cf[i * 2 + 1] * phase->voltage.y_cf[i * 2 + 1]);
+			v_rms += phase->voltage.y_cf[i];
+			// In linear circuits, frequency is constant between all signals, voltage and current
+			if (phase->voltage.y_cf[i] > phase->voltage.y_cf[bin_max]) {
+				bin_max = i;
+			}
+			// Phase
+			phase->voltage.y_cf[N_ARRAY_LENGTH + i] = atan2(phase->voltage.y_cf[i * 2 + 1], phase->voltage.y_cf[i * 2]);
 
-#if 1
-		printf("\n");
-		for (i = 0; i < N_ARRAY_LENGTH / 2; i++) {
-			sprintf(buff, "%12.4f %12.4f %12.4f %12.4f\n", phase->voltage.y_cf[i * 2], phase->voltage.y_cf[(i * 2) + 1], phase->current.y_cf[i * 2], phase->current.y_cf[(i * 2) + 1]);
-			printf("%s", buff);
+			// Magnitude
+			phase->current.y_cf[i] = (phase->current.y_cf[i * 2] * phase->current.y_cf[i * 2]) + (phase->current.y_cf[i * 2 + 1] * phase->current.y_cf[i * 2 + 1]);
+			i_rms += phase->current.y_cf[i];
+			// Phase
+			phase->current.y_cf[N_ARRAY_LENGTH + i] = atan2(phase->current.y_cf[i * 2 + 1], phase->current.y_cf[i * 2]);
 		}
-		printf("\n");
+		v_rms = sqrt(2 * v_rms) / N_ARRAY_LENGTH;
+		i_rms = sqrt(2 * i_rms) / N_ARRAY_LENGTH;
+		printf("v_rms = %10.6f i_rms = %10.6f\n", v_rms, i_rms);
+
+		// S = V x I* ==> /_S = /_V + /_I* = /_V - /_I
+		phase_diff = phase->voltage.y_cf[N_ARRAY_LENGTH + i] - phase->current.y_cf[N_ARRAY_LENGTH + bin_max];
+		while (phase_diff < -M_PI)
+		{
+			phase_diff += 2 * M_PI;
+		}
+		while (phase_diff > M_PI)
+		{
+			phase_diff -= M_PI;
+		}
+		phase->power.power_factor = cos(phase_diff);
+
+		if(phase_diff < -EPSILON) {
+			phase->power.power_factor_type = 'C'; // Capacitive
+		} else if (phase_diff > EPSILON) {
+			phase->power.power_factor_type = 'I'; // Inductive
+		} else {
+			phase->power.power_factor_type = 'R'; // Resistive
+		}
+//		phase->power.apparent = v_rms * i_rms;
+//		phase->power.active = phase->power.apparent * cos(phase_diff);
+//		phase->power.reactive = phase->power.apparent * sin(phase_diff);
+
+
+		// end magnitude and phase calculation
+#endif
+#if 1
+		if (bin_max > 0 && bin_max < (N_ARRAY_LENGTH / 2))
+		{
+			//// Reference: http://www.add.ece.ufl.edu/4511/references/ImprovingFFTResoltuion.pdf
+			// Parabolic Interpolation
+			signal_frequency_correction = (phase->voltage.y_cf[bin_max + 1] - phase->voltage.y_cf[bin_max - 1]) / \
+					(2 * ((2 * phase->voltage.y_cf[bin_max]) - phase->voltage.y_cf[bin_max + 1] - phase->voltage.y_cf[bin_max - 1]));
+		}
+		else
+		{
+			signal_frequency_correction = 0.0;
+		}
+//		printf("\nsampling frequency: %f\n", sampling_frequency);
+//		printf("\ndelta_m: %f\n", signal_frequency_correction);
+		phase->power.frequency = (sampling_frequency / N_ARRAY_LENGTH) * (bin_max + signal_frequency_correction);
+		printf("Frequency: %8.2f\n", phase->power.frequency);
+
+//		printf("Magnitude; Phase\n");
+//		for (i = 0; i < N_ARRAY_LENGTH / 2; i++) {
+//			sprintf(buff, "%12.4f %12.4f %12.4f %12.4f\n", phase->voltage.y_cf[i], phase->voltage.y_cf[N_ARRAY_LENGTH + i], phase->current.y_cf[i], phase->current.y_cf[N_ARRAY_LENGTH + i]);
+//			printf("%s", buff);
+//		}
+//		printf("\n");
 #elif 0
 		for (i = 0 ; i < N_ARRAY_LENGTH / 2 ; i++) {
 			phase->voltage.y_cf[i] = 10 * log10f((phase->voltage.y_cf[i * 2 + 0] * phase->voltage.y_cf[i * 2 + 0] + phase->voltage.y_cf[i * 2 + 1] * phase->voltage.y_cf[i * 2 + 1])/N_ARRAY_LENGTH);
@@ -990,8 +1067,8 @@ fft_continuous(void *arg)
 		ESP_LOGW("FFT", "Current");
 		dsps_view(phase->current.y_cf, N_ARRAY_LENGTH / 2, 64, 10,  0, 90, '|');
 #endif
-//	    printf("FP = %.2f ", cos(phase->power_factor));
-//	    if (phase->power_factor >= 0)
+//	    printf("FP = %.2f ", cos(phase->power.power_factor));
+//	    if (phase->power.power_factor >= 0)
 //	    {
 //	    	printf("Ind\n");
 //	    }
@@ -1106,9 +1183,6 @@ void app_main()
 	wifi_init_ap_sta();
 	printf("\ninit wifi ap + sta\n");
 
-	//// Initializers Circuit phases
-	init_phase();
-
 	//// Initializers ADC
 	init_adc();
 	printf("\ninit_adc!\n");
@@ -1180,7 +1254,7 @@ void app_main()
 		integration(phase_copy, n_array_copy_length, &phase_a.voltage.rms, &phase_a.current.rms);
 		phase_a.voltage.rms = sqrt(phase_a.voltage.rms / n_array_copy_length);
 		phase_a.current.rms = sqrt(phase_a.current.rms / n_array_copy_length);
-		phase_a.power_apparent = phase_a.voltage.rms * phase_a.current.rms;
+		phase_a.power.apparent = phase_a.voltage.rms * phase_a.current.rms;
 		// end RMS
 
 #if 0
@@ -1190,7 +1264,7 @@ void app_main()
 			fflush(stdout);
 			vTaskDelay(10 / portTICK_RATE_MS);
 		}
-		printf("\nVrms = %06.2f; Irms = %06.2f; P = %06.2f\n", phase_a.voltage.rms, phase_a.current.rms, phase_a.power_apparent);
+		printf("\nVrms = %06.2f; Irms = %06.2f; P = %06.2f\n", phase_a.voltage.rms, phase_a.current.rms, phase_a.power.apparent);
 		printf("\n\n");
 		fflush(stdout);
 #endif

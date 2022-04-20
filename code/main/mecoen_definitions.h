@@ -36,6 +36,7 @@
 #define N_POWER_OF_TWO 10 // (N_ARRAY_LENGTH = 2^10 = 1024) | Must be such that time to fill the array must be less than 1s -> 2^N_POWER_OF_TWO < SAMPLING_FREQUENCY
 #define N_ARRAY_LENGTH (1 << N_POWER_OF_TWO) // Must be power of 2
 #define REASON 4
+#define EPSILON 0.00001
 //// end definitions common
 
 //// definitions freertos tasks
@@ -181,14 +182,15 @@ typedef struct
 typedef struct
 {
 	float apparent, active, reactive, power_factor, frequency;
+	char power_factor_type;
 } Power;
 
 
 //// structure for voltage and current readings in a phase of the circuit, and phase power calculation results
 typedef struct Circuit_phase
 {
-	Signal voltage, current, power;
-	float power_apparent, power_active, power_reactive, power_factor, freq;
+	Signal voltage, current;
+	Power power;
 } Circuit_phase;
 //// end structure for voltage and current readings in a phase of the circuit, and phase power calculation results
 // end structures
