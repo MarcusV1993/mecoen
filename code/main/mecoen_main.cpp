@@ -174,16 +174,6 @@ static constexpr adc_channel_t channel_i = ADC_CHANNEL_7;	  // GPIO35
 static constexpr adc_atten_t atten = ADC_ATTEN_DB_11; // max = 3.9V -> https://docs.espressif.com/projects/esp-idf/en/latest/api-reference/peripherals/adc.html
 static constexpr adc_unit_t unit = ADC_UNIT_1;
 ////// end const ADC ports and configuration
-
-////// const ADC voltage sensor
-static constexpr float zmpt101b_dc_bias = 1139/*(ZMPT101B_VCC * 1000 / 2) * ZMPT101B_R2 / (ZMPT101B_R1 + ZMPT101B_R2)*/; // Calculated: 1.107 V Measured: 1217 mV
-static constexpr float zmpt101b_calibration = (220 * sqrt(2)) / (ZMPT101B_VMAX * 1000 / 2);
-////// end const ADC voltage sensor
-
-////// const ADC current sensor
-static constexpr float sct013_dc_bias = 1025;/*SCT013_VCC * 1000 * SCT013_R2 / (SCT013_R1 + SCT013_R2);*/ // Calculated: 1,032 V Measured: 1130 mV
-static constexpr float sct013_calibration = (SCT013_NUMBER_TURNS / SCT013_BURDEN_RESISTOR);
-////// end const ADC current sensor
 //// end const ADC
 
 
@@ -241,8 +231,8 @@ RTC_DATA_ATTR static int boot_count = 0;
 
 //// global variables ADC
 static esp_adc_cal_characteristics_t *adc_chars;
-static float zmpt101b_vdc = ZMPT101B_VDC;
-static float  sct013_vdc = SCT013_VDC;
+static float zmpt101b_vdc;
+static float  sct013_vdc;
 //// end global variables ADC
 
 
@@ -548,8 +538,8 @@ read_phase(void *arg)
 		sct013_vdc_local = 0.0;
 		for(int i = 0; i < N_ARRAY_LENGTH; i++)
 		{
-			phase->voltage.samples[i] /= NO_OF_SAMPLES * 1000; // Convert from mV to V
-			phase->current.samples[i] /= NO_OF_SAMPLES * 1000; // Convert from mV to V
+			phase->voltage.samples[i] /= NO_OF_SAMPLES; // In mV
+			phase->current.samples[i] /= NO_OF_SAMPLES; // In mV
 
 			zmpt101b_vdc_local += phase->voltage.samples[i];
 			sct013_vdc_local += phase->current.samples[i];
@@ -559,8 +549,8 @@ read_phase(void *arg)
 //		printf("\nsampling period: %10.0f\n", sample_period / (N_ARRAY_LENGTH - 1));
 
 		// Copy new average to dc value
-		zmpt101b_vdc = zmpt101b_vdc_local / N_ARRAY_LENGTH;
-		sct013_vdc   = sct013_vdc_local / N_ARRAY_LENGTH;
+		zmpt101b_vdc = zmpt101b_vdc_local / N_ARRAY_LENGTH; // In mV
+		sct013_vdc   = sct013_vdc_local / N_ARRAY_LENGTH; // In mV
 
 
 		// Semaphore to main so it can copy the values
@@ -807,7 +797,7 @@ http_server_netconn_serve(struct netconn *conn)
         output[strlen(message) + 1] = ';';
 
         output = strstr(output + 1, "#");
-        sprintf(message, "Vrms = %07.2f", phase_a.current.rms_previous);
+        sprintf(message, "Irms = %07.2f", phase_a.current.rms_previous);
 		strcpy(output + 1, message);
 		output[strlen(message) + 1] = '.';
 
@@ -979,7 +969,7 @@ fft_continuous(void *arg)
 			// Store phase
 			phase->current.y_cf[N_ARRAY_LENGTH + i] = 0.0;
 		}
-#if 1 // Calculate Magnitude and phsae
+#if 1 // Calculate magnitude and phase
 		bin_max = i;
 		v_rms = 0.0;
 		i_rms = 0.0;
@@ -1001,12 +991,15 @@ fft_continuous(void *arg)
 			// Phase
 			phase->current.y_cf[N_ARRAY_LENGTH + i] = atan2(phase->current.y_cf[i * 2 + 1], phase->current.y_cf[i * 2]);
 		}
-		v_rms = sqrt(2 * v_rms) / N_ARRAY_LENGTH;
-		i_rms = sqrt(2 * i_rms) / N_ARRAY_LENGTH;
-		printf("v_rms = %10.6f i_rms = %10.6f\n", v_rms, i_rms);
+		v_rms = sqrt(2 * v_rms) / (N_ARRAY_LENGTH * 1e3);
+		i_rms = sqrt(2 * i_rms) / (N_ARRAY_LENGTH * 1e3);
 
-		// S = V x I* ==> /_S = /_V + /_I* = /_V - /_I
-		phase_diff = phase->voltage.y_cf[N_ARRAY_LENGTH + i] - phase->current.y_cf[N_ARRAY_LENGTH + bin_max];
+
+		v_rms = v_rms < EPSILON_V_RMS ? 0.0 : v_rms * RMS_2_REAL_V;
+		i_rms = i_rms < EPSILON_I_RMS ? 0.0 : i_rms * RMS_2_REAL_I;
+		printf("v_rms = %5.1f i_rms = %5.1f\n", v_rms, i_rms);
+
+		phase_diff = (v_rms < EPSILON || i_rms < EPSILON) ? 0.0 : phase->voltage.y_cf[N_ARRAY_LENGTH + i] - phase->current.y_cf[N_ARRAY_LENGTH + bin_max];
 		while (phase_diff < -M_PI)
 		{
 			phase_diff += 2 * M_PI;
@@ -1017,6 +1010,7 @@ fft_continuous(void *arg)
 		}
 		phase->power.power_factor = cos(phase_diff);
 
+		phase->power.power_factor_type = phase_diff < -EPSILON ? 'C' : (phase_diff > EPSILON ? 'I' : 'R');
 		if(phase_diff < -EPSILON) {
 			phase->power.power_factor_type = 'C'; // Capacitive
 		} else if (phase_diff > EPSILON) {
@@ -1024,6 +1018,7 @@ fft_continuous(void *arg)
 		} else {
 			phase->power.power_factor_type = 'R'; // Resistive
 		}
+		printf("phase_diff: %f\n", phase_diff);
 //		phase->power.apparent = v_rms * i_rms;
 //		phase->power.active = phase->power.apparent * cos(phase_diff);
 //		phase->power.reactive = phase->power.apparent * sin(phase_diff);
@@ -1046,7 +1041,7 @@ fft_continuous(void *arg)
 //		printf("\nsampling frequency: %f\n", sampling_frequency);
 //		printf("\ndelta_m: %f\n", signal_frequency_correction);
 		phase->power.frequency = (sampling_frequency / N_ARRAY_LENGTH) * (bin_max + signal_frequency_correction);
-		printf("Frequency: %8.2f\n", phase->power.frequency);
+		printf("Frequency: %8.1f\n", phase->power.frequency);
 
 //		printf("Magnitude; Phase\n");
 //		for (i = 0; i < N_ARRAY_LENGTH / 2; i++) {
@@ -1209,19 +1204,16 @@ void app_main()
 #endif
 	// end Initializers
 
-	// Take semaphore to sync FFT and ADC tasks
-//	xSemaphoreTake(semaphore_fft, portMAX_DELAY);
-//	xSemaphoreTake(semaphore_adc, portMAX_DELAY);
 
 	// Create Tasks
 	//// Create Tasks Web server
 	xTaskCreatePinnedToCore(&http_server, "http_server", 2048, NULL, 5, NULL, 1);
 
 	//// Create Tasks ADC
-    xTaskCreatePinnedToCore(read_phase, "read_phase", 2048, &phase_a, 5, &task_adc, 1);
+    xTaskCreatePinnedToCore(read_phase, "read_phase", 2048, &phase_a, 5, &task_adc, 0);
     //// Create Tasks FFT
 #if _MECOEN_FFT_
-    xTaskCreatePinnedToCore(fft_continuous, "fft_continuous", 2048, &phase_a, 5, &task_fft, 1);
+    xTaskCreatePinnedToCore(fft_continuous, "fft_continuous", 2048, &phase_a, 5, &task_fft, 0);
 #endif
 	//// Create Tasks I2C | RTC DS3231
 #if _MECOEN_DS3231_

@@ -36,7 +36,9 @@
 #define N_POWER_OF_TWO 10 // (N_ARRAY_LENGTH = 2^10 = 1024) | Must be such that time to fill the array must be less than 1s -> 2^N_POWER_OF_TWO < SAMPLING_FREQUENCY
 #define N_ARRAY_LENGTH (1 << N_POWER_OF_TWO) // Must be power of 2
 #define REASON 4
-#define EPSILON 0.00001
+#define EPSILON 0.0001
+#define EPSILON_V_RMS 0.0001
+#define EPSILON_I_RMS 0.01
 //// end definitions common
 
 //// definitions freertos tasks
@@ -63,35 +65,14 @@
 ////// end definitions ADC peripheral reference voltage
 
 ////// definitions ADC sampling
-#define SAMPLING_FREQUENCY 1250
-#define NO_OF_SAMPLES   1          //Multisampling | Value must be greater than 1
+#define SAMPLING_FREQUENCY 2000
+#define NO_OF_SAMPLES   4          //Multisampling | Value must be greater than 1
 ////// end definitions ADC sampling
 
-////// definitions ADC voltage sensor parameters
-#define ZMPT101B_VCC            3.3
-#define ZMPT101B_R1			   9840 // 10k
-#define ZMPT101B_R2			   9970 // 10k
-
-#define ZMPT101B_VMAX		 0.8202 // Calibrar
-////// end definitions ADC voltage sensor parameters
-
-////// definitions ADC current sensor parameters
-#define SCT013_VCC 				3.3
-#define SCT013_NUMBER_TURNS    2000
-#define SCT013_BURDEN_RESISTOR  466 // 470
-#define SCT013_R1             21700 // 22k
-#define SCT013_R2              9870 // 10k
-////// end definitions ADC current sensor parameters
-
-////// definitions ADC Vdc equivalent 0 V or 0 A
-#define ZMPT101B_VDC 419
-#define   SCT013_VDC 504
-////// end definitions ADC Vdc equivalent 0 V or 0 A
-
-////// definitions ADC conversion rates to real world values
-#define ZMPT101B_CONSTANT_MULTIPLIER 0.60595
-#define SCT013_CONSTANT_MULTIPLIER 0.00932
-////// end definitions ADC conversion rates to real world values
+////// definitions ADC conversion
+#define RMS_2_REAL_V 389.69
+#define RMS_2_REAL_I 1.0
+////// end definitions ADC conversion
 //// end definitions ADC
 
 
