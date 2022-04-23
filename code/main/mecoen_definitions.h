@@ -37,7 +37,7 @@
 #define N_ARRAY_LENGTH (1 << N_POWER_OF_TWO) // Must be power of 2
 #define REASON 4
 #define EPSILON 0.0001
-#define EPSILON_V_RMS 0.0001
+#define EPSILON_V_RMS 0.001
 #define EPSILON_I_RMS 0.01
 //// end definitions common
 
@@ -70,7 +70,7 @@
 ////// end definitions ADC sampling
 
 ////// definitions ADC conversion
-#define RMS_2_REAL_V 389.69
+#define RMS_2_REAL_V 402.2
 #define RMS_2_REAL_I 1.0
 ////// end definitions ADC conversion
 //// end definitions ADC
@@ -162,8 +162,10 @@ typedef struct
 
 typedef struct
 {
-	float apparent, active, reactive, power_factor, frequency;
-	char power_factor_type;
+	struct {
+		float magnitude, phase;
+	} apparent;
+	float active, reactive, power_factor, frequency;
 } Power;
 
 

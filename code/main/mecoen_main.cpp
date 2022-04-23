@@ -207,12 +207,7 @@ constexpr int n_array_copy_length = N_ARRAY_LENGTH / REASON;
 static float phase_copy[n_array_copy_length][3];
 
 
-//// global variables semaphores task handles
-static TaskHandle_t task_adc = NULL;
-#if _MECOEN_FFT_
-static TaskHandle_t  task_fft = NULL;
-#endif
-
+//// global variables semaphores
 static SemaphoreHandle_t semaphore_adc_main;
 static SemaphoreHandle_t semaphore_adc;
 //// end global variables semaphores
@@ -282,6 +277,10 @@ static char message[100];
 
 
 // functions
+//// functions declarations
+void process_sampled_data(Circuit_phase *phase, float sampling_period_us);
+//// end functions declarations
+
 //// functions time
 unsigned long IRAM_ATTR micros()
 {
@@ -559,11 +558,7 @@ read_phase(void *arg)
 		// Semaphore from main that values have been copied
 		xSemaphoreTake(semaphore_adc, 10 * ticks_1s);
 
-		// Task Handle to allow FFT function to sync access to common resource
-		xTaskNotifyGiveIndexed(task_fft, INDEX_TO_WATCH);
-
-		// Task Handle to await the conclusion
-		ulTaskNotifyTakeIndexed(INDEX_TO_WATCH, pdTRUE, 10 * ticks_1s);
+		process_sampled_data(phase, sample_period / (N_ARRAY_LENGTH - 1));
 	}
 }
 //// end functions ADC
@@ -619,12 +614,12 @@ event_handler(void* arg, esp_event_base_t event_base,
 		switch (event_id)
 		{
 			case WIFI_EVENT_STA_START: // STA
-printf("WIFI_EVENT_STA_START\n");
+//				printf("WIFI_EVENT_STA_START\n");
 				esp_wifi_connect();
 				break;
 
 			case WIFI_EVENT_STA_DISCONNECTED: // STA
-printf("WIFI_EVENT_STA_DISCONNECTED\n");
+//				printf("WIFI_EVENT_STA_DISCONNECTED\n");
 				if (s_retry_num < MECOEN_WIFI_MAXIMUM_RETRY) {
 					esp_wifi_connect();
 					s_retry_num++;
@@ -636,13 +631,13 @@ printf("WIFI_EVENT_STA_DISCONNECTED\n");
 				break;
 
 			case WIFI_EVENT_AP_STACONNECTED: // AP
-printf("WIFI_EVENT_AP_STACONNECTED\n");
+//				printf("WIFI_EVENT_AP_STACONNECTED\n");
 				ESP_LOGI(TAG_WIFI, "station " MACSTR " join, AID=%d",
 						 MAC2STR(((wifi_event_ap_staconnected_t*) event_data)->mac), ((wifi_event_ap_staconnected_t*) event_data)->aid);
 				break;
 
 			case WIFI_EVENT_AP_STADISCONNECTED: // AP
-printf("WIFI_EVENT_AP_STADISCONNECTED\n");
+//				printf("WIFI_EVENT_AP_STADISCONNECTED\n");
 				ESP_LOGI(TAG_WIFI, "station " MACSTR " leave, AID=%d",
 						 MAC2STR(((wifi_event_ap_stadisconnected_t*) event_data)->mac), ((wifi_event_ap_stadisconnected_t*) event_data)->aid);
 				break;
@@ -656,7 +651,7 @@ printf("WIFI_EVENT_AP_STADISCONNECTED\n");
 		if (event_id == IP_EVENT_STA_GOT_IP)
 		{
 			ip_event_got_ip_t* event = (ip_event_got_ip_t*) event_data;
-printf("My IP: " IPSTR "\n", IP2STR(&event->ip_info.ip));
+//			printf("My IP: " IPSTR "\n", IP2STR(&event->ip_info.ip));
 			ESP_LOGI(TAG_WIFI, "got ip:" IPSTR, IP2STR(&event->ip_info.ip));
 			s_retry_num = 0;
 			xEventGroupSetBits(s_wifi_event_group, WIFI_CONNECTED_BIT);
@@ -670,18 +665,18 @@ wifi_init_ap_sta()
 {
 	ESP_ERROR_CHECK(init_nvs());
 	ESP_LOGI(TAG_WIFI,"nvs initialized");
-printf("nvs initialized\n");
+
     s_wifi_event_group = xEventGroupCreate(); // STA
 
     ESP_ERROR_CHECK(esp_netif_init()); // AP and STA
 	ESP_ERROR_CHECK(esp_event_loop_create_default());  // AP and STA
-printf("netif init and event loop create default\n");
+
     esp_netif_create_default_wifi_ap(); // AP
     esp_netif_create_default_wifi_sta(); //STA
-printf("create default ap and sta\n");
+
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();  // AP and STA
 	ESP_ERROR_CHECK(esp_wifi_init(&cfg));  // AP and STA
-printf("init config default\n");
+
 	esp_event_handler_instance_t instance_any_id; // STA
 	esp_event_handler_instance_t instance_got_ip; // STA
 
@@ -712,7 +707,7 @@ printf("init config default\n");
 	wifi_sta_config.sta.pmf_cfg.capable = true;
 	wifi_sta_config.sta.pmf_cfg.required = false;
 	// end STA config
-printf("STA config\n");
+
 	// AP config
     wifi_config_t wifi_ap_config = { };
     memset(&wifi_ap_config, 0, sizeof(wifi_config_t));
@@ -727,20 +722,15 @@ printf("STA config\n");
         wifi_ap_config.ap.authmode = WIFI_AUTH_OPEN;
     }
     // end AP config
-printf("AP config\n");
+
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_APSTA)); // AP + STA
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &wifi_ap_config));
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_sta_config));
-    esp_err_t ret;
-    ret = esp_wifi_start();
-    ESP_ERROR_CHECK(ret);
-    printf("%s\n", esp_err_to_name(ret));
-//    ESP_ERROR_CHECK(esp_wifi_start()); // AP + STA
+    ESP_ERROR_CHECK(esp_wifi_start()); // AP + STA
 
     ESP_LOGI(TAG_WIFI, "wifi_init_sta finished.");
     ESP_LOGI(TAG_WIFI, "wifi_init_softap finished. SSID:%s password:%s channel:%d",
                  MECOEN_WIFI_AP_SSID, MECOEN_WIFI_AP_PASS, MECOEN_WIFI_AP_CHANNEL);
-printf("sta and softap finished\n");
 
     // STA \>
     /* Waiting until either the connection is established (WIFI_CONNECTED_BIT) or connection failed for the maximum
@@ -750,24 +740,20 @@ printf("sta and softap finished\n");
             pdFALSE,
             pdFALSE,
             portMAX_DELAY);
-printf("Event bits\n");
     /* xEventGroupWaitBits() returns the bits before the call returned, hence we can test which event actually
      * happened. */
     if (bits & WIFI_CONNECTED_BIT) {
         ESP_LOGI(TAG_WIFI, "connected to ap SSID:%s password:%s",
                  MECOEN_WIFI_STA_SSID, MECOEN_WIFI_STA_PASS);
-printf("connected to ap SSID:%s password:%s\n",
-        MECOEN_WIFI_STA_SSID, MECOEN_WIFI_STA_PASS);
+//        printf("connected to ap SSID:%s password:%s\n", MECOEN_WIFI_STA_SSID, MECOEN_WIFI_STA_PASS);
     } else if (bits & WIFI_FAIL_BIT) {
         ESP_LOGI(TAG_WIFI, "Failed to connect to SSID:%s, password:%s",
         		MECOEN_WIFI_STA_SSID, MECOEN_WIFI_STA_PASS);
-printf(TAG_WIFI, "Failed to connect to SSID:%s, password:%s\n",
-		MECOEN_WIFI_STA_SSID, MECOEN_WIFI_STA_PASS);
+        printf(TAG_WIFI, "Failed to connect to SSID:%s, password:%s\n", MECOEN_WIFI_STA_SSID, MECOEN_WIFI_STA_PASS);
     } else {
         ESP_LOGE(TAG_WIFI, "UNEXPECTED EVENT");
-printf("UNEXPECTED EVENT\n");
+        printf("UNEXPECTED EVENT\n");
     }
-printf("Init end\n");
     /* The event will not be processed after unregister */
 //    ESP_ERROR_CHECK(esp_event_handler_instance_unregister(IP_EVENT, IP_EVENT_STA_GOT_IP, instance_got_ip));
 //    ESP_ERROR_CHECK(esp_event_handler_instance_unregister(WIFI_EVENT, ESP_EVENT_ANY_ID, instance_any_id));
@@ -846,6 +832,7 @@ init_rtc_ds3231(struct tm *current_time)
     ESP_ERROR_CHECK(ds3231_set_time(&dev, current_time));
 }
 
+
 void
 rtc_ds3231 (void *arg)
 {
@@ -907,175 +894,138 @@ fft_function(Signal *signal)
 	// Convert one complex vector to two complex vectors
 	dsps_cplx2reC_fc32(signal->y_cf, N_ARRAY_LENGTH);
 }
+//// functions FFT
 
 
+//// functions process sampled data
 void
-fft_continuous(void *arg)
+process_sampled_data(Circuit_phase *phase, float sampling_period_us)
 {
-	printf("\nread_fft task initialized!\n");
-	Circuit_phase *phase = (Circuit_phase *) arg;
 	int i;
 	int bin_max;
 	float sampling_frequency = 0.0;
 	float signal_frequency_correction = 0.0;
 	float v_rms = 0.0;
 	float i_rms = 0.0;
-	float phase_diff = 0.0;
 
 //	char buff[128];
 
-	ulTaskNotifyTakeIndexed(INDEX_TO_WATCH, pdTRUE, portMAX_DELAY); // Wait for adc task to fill array
+	sampling_frequency = 1e6 / sampling_period_us;
 
-	while(1)
-	{
-		ulTaskNotifyTakeIndexed(INDEX_TO_WATCH, pdTRUE, portMAX_DELAY); // Wait for adc task to fill array
+	// Copy sampled values while applying a window filter to the signal and "adding" an imaginary part to the real signal
+	for (i = 0; i < N_ARRAY_LENGTH; i++) {
+		phase->voltage.y_cf[i * 2] = phase->voltage.samples[i] * wind[i];
+		phase->voltage.y_cf[(i * 2) + 1] = 0.0; // Real signal has imaginary part 0
 
-		sampling_frequency = 1e6 / effective_sample_period_us;
-//		printf("\n");
-//		for (i = 0; i < N_ARRAY_LENGTH; i++) {
-//			sprintf(buff, "%12.4f %12.4f\n", phase->voltage.samples[i], phase->current.samples[i]);
-//			printf("%s", buff);
-//
-//		}
-
-		for (i = 0; i < N_ARRAY_LENGTH; i++)
-		{
-			phase->voltage.y_cf[i * 2] = phase->voltage.samples[i] * wind[i];
-			phase->voltage.y_cf[(i * 2) + 1] = 0.0; // Real signal has imaginary part 0
-
-			phase->current.y_cf[i * 2] = phase->current.samples[i] * wind[i];
-			phase->current.y_cf[(i * 2) + 1] = 0.0; // Real signal has imaginary part 0
-		}
-
-
-		fft_function(&(phase->voltage));
-		fft_function(&(phase->current));
-
-
-		// Calculate magnitude and phase of the signal saving it to same array
-		// Magnitude from 0 to (N_ARRAY_LENGTH / 2) and phase from N_ARRAY_LENGTH to (N_ARRAY_LENGTH + (N_ARRAY_LENGTH / 2))
-		// Low Cut Filter to remove DC
-		for (i = 0; i < MECOEN_FFT_LOW_CUT_BINS; i++)
-		{
-			// DC filter and store magnitude
-			phase->voltage.y_cf[i * 2] = 0.0;
-			phase->voltage.y_cf[(i * 2) + 1] = 0.0;
-			// Store phase
-			phase->voltage.y_cf[N_ARRAY_LENGTH + i] = 0.0;
-
-			// DC filter and store magnitude
-			phase->current.y_cf[i * 2] = 0.0;
-			phase->current.y_cf[(i * 2) + 1] = 0.0;
-			// Store phase
-			phase->current.y_cf[N_ARRAY_LENGTH + i] = 0.0;
-		}
-#if 1 // Calculate magnitude and phase
-		bin_max = i;
-		v_rms = 0.0;
-		i_rms = 0.0;
-		for ( ; i < N_ARRAY_LENGTH / 2; i++)
-		{
-			// Magnitude
-			phase->voltage.y_cf[i] = (phase->voltage.y_cf[i * 2] * phase->voltage.y_cf[i * 2]) + (phase->voltage.y_cf[i * 2 + 1] * phase->voltage.y_cf[i * 2 + 1]);
-			v_rms += phase->voltage.y_cf[i];
-			// In linear circuits, frequency is constant between all signals, voltage and current
-			if (phase->voltage.y_cf[i] > phase->voltage.y_cf[bin_max]) {
-				bin_max = i;
-			}
-			// Phase
-			phase->voltage.y_cf[N_ARRAY_LENGTH + i] = atan2(phase->voltage.y_cf[i * 2 + 1], phase->voltage.y_cf[i * 2]);
-
-			// Magnitude
-			phase->current.y_cf[i] = (phase->current.y_cf[i * 2] * phase->current.y_cf[i * 2]) + (phase->current.y_cf[i * 2 + 1] * phase->current.y_cf[i * 2 + 1]);
-			i_rms += phase->current.y_cf[i];
-			// Phase
-			phase->current.y_cf[N_ARRAY_LENGTH + i] = atan2(phase->current.y_cf[i * 2 + 1], phase->current.y_cf[i * 2]);
-		}
-		v_rms = sqrt(2 * v_rms) / (N_ARRAY_LENGTH * 1e3);
-		i_rms = sqrt(2 * i_rms) / (N_ARRAY_LENGTH * 1e3);
-
-
-		v_rms = v_rms < EPSILON_V_RMS ? 0.0 : v_rms * RMS_2_REAL_V;
-		i_rms = i_rms < EPSILON_I_RMS ? 0.0 : i_rms * RMS_2_REAL_I;
-		printf("v_rms = %5.1f i_rms = %5.1f\n", v_rms, i_rms);
-
-		phase_diff = (v_rms < EPSILON || i_rms < EPSILON) ? 0.0 : phase->voltage.y_cf[N_ARRAY_LENGTH + i] - phase->current.y_cf[N_ARRAY_LENGTH + bin_max];
-		while (phase_diff < -M_PI)
-		{
-			phase_diff += 2 * M_PI;
-		}
-		while (phase_diff > M_PI)
-		{
-			phase_diff -= M_PI;
-		}
-		phase->power.power_factor = cos(phase_diff);
-
-		phase->power.power_factor_type = phase_diff < -EPSILON ? 'C' : (phase_diff > EPSILON ? 'I' : 'R');
-		if(phase_diff < -EPSILON) {
-			phase->power.power_factor_type = 'C'; // Capacitive
-		} else if (phase_diff > EPSILON) {
-			phase->power.power_factor_type = 'I'; // Inductive
-		} else {
-			phase->power.power_factor_type = 'R'; // Resistive
-		}
-		printf("phase_diff: %f\n", phase_diff);
-//		phase->power.apparent = v_rms * i_rms;
-//		phase->power.active = phase->power.apparent * cos(phase_diff);
-//		phase->power.reactive = phase->power.apparent * sin(phase_diff);
-
-
-		// end magnitude and phase calculation
-#endif
-#if 1
-		if (bin_max > 0 && bin_max < (N_ARRAY_LENGTH / 2))
-		{
-			//// Reference: http://www.add.ece.ufl.edu/4511/references/ImprovingFFTResoltuion.pdf
-			// Parabolic Interpolation
-			signal_frequency_correction = (phase->voltage.y_cf[bin_max + 1] - phase->voltage.y_cf[bin_max - 1]) / \
-					(2 * ((2 * phase->voltage.y_cf[bin_max]) - phase->voltage.y_cf[bin_max + 1] - phase->voltage.y_cf[bin_max - 1]));
-		}
-		else
-		{
-			signal_frequency_correction = 0.0;
-		}
-//		printf("\nsampling frequency: %f\n", sampling_frequency);
-//		printf("\ndelta_m: %f\n", signal_frequency_correction);
-		phase->power.frequency = (sampling_frequency / N_ARRAY_LENGTH) * (bin_max + signal_frequency_correction);
-		printf("Frequency: %8.1f\n", phase->power.frequency);
-
-//		printf("Magnitude; Phase\n");
-//		for (i = 0; i < N_ARRAY_LENGTH / 2; i++) {
-//			sprintf(buff, "%12.4f %12.4f %12.4f %12.4f\n", phase->voltage.y_cf[i], phase->voltage.y_cf[N_ARRAY_LENGTH + i], phase->current.y_cf[i], phase->current.y_cf[N_ARRAY_LENGTH + i]);
-//			printf("%s", buff);
-//		}
-//		printf("\n");
-#elif 0
-		for (i = 0 ; i < N_ARRAY_LENGTH / 2 ; i++) {
-			phase->voltage.y_cf[i] = 10 * log10f((phase->voltage.y_cf[i * 2 + 0] * phase->voltage.y_cf[i * 2 + 0] + phase->voltage.y_cf[i * 2 + 1] * phase->voltage.y_cf[i * 2 + 1])/N_ARRAY_LENGTH);
-			phase->current.y_cf[i] = 10 * log10f((phase->current.y_cf[i * 2 + 0] * phase->current.y_cf[i * 2 + 0] + phase->current.y_cf[i * 2 + 1] * phase->current.y_cf[i * 2 + 1])/N_ARRAY_LENGTH);
-		}
-
-		// Voltage
-	    ESP_LOGW("FFT", "Voltage");
-	    dsps_view(phase->voltage.y_cf, N_ARRAY_LENGTH / 2, 64, 10,  0, 90, '|');
-		// Current
-		ESP_LOGW("FFT", "Current");
-		dsps_view(phase->current.y_cf, N_ARRAY_LENGTH / 2, 64, 10,  0, 90, '|');
-#endif
-//	    printf("FP = %.2f ", cos(phase->power.power_factor));
-//	    if (phase->power.power_factor >= 0)
-//	    {
-//	    	printf("Ind\n");
-//	    }
-//	    else
-//	    {
-//	    	printf("Cap\n");
-//	    }
-		xTaskNotifyGiveIndexed(task_adc, INDEX_TO_WATCH);
+		phase->current.y_cf[i * 2] = phase->current.samples[i] * wind[i];
+		phase->current.y_cf[(i * 2) + 1] = 0.0; // Real signal has imaginary part 0
 	}
-}
-//// functions FFT
 
+
+	// Run the FFT operations
+	fft_function(&(phase->voltage));
+	fft_function(&(phase->current));
+
+
+	// Calculate magnitude and phase of the signal saving it to same array
+	// Magnitude from 0 to (N_ARRAY_LENGTH / 2) and phase from N_ARRAY_LENGTH to (N_ARRAY_LENGTH + (N_ARRAY_LENGTH / 2))
+	// Low Cut Filter to remove DC
+	for (i = 0; i < MECOEN_FFT_LOW_CUT_BINS; i++) {
+		// DC filter and store magnitude
+		phase->voltage.y_cf[i * 2] = 0.0;
+		phase->voltage.y_cf[(i * 2) + 1] = 0.0;
+		// Store phase
+		phase->voltage.y_cf[N_ARRAY_LENGTH + i] = 0.0;
+
+		// DC filter and store magnitude
+		phase->current.y_cf[i * 2] = 0.0;
+		phase->current.y_cf[(i * 2) + 1] = 0.0;
+		// Store phase
+		phase->current.y_cf[N_ARRAY_LENGTH + i] = 0.0;
+	}
+
+	// Calculate magnitude and phase
+	bin_max = MECOEN_FFT_LOW_CUT_BINS;
+	v_rms = 0.0;
+	i_rms = 0.0;
+	for (i = MECOEN_FFT_LOW_CUT_BINS ; i < N_ARRAY_LENGTH / 2; i++) {
+		// Magnitude
+		phase->voltage.y_cf[i] = (phase->voltage.y_cf[i * 2] * phase->voltage.y_cf[i * 2]) + (phase->voltage.y_cf[(i * 2) + 1] * phase->voltage.y_cf[(i * 2) + 1]);
+		v_rms += phase->voltage.y_cf[i];
+		// In linear circuits, frequency is constant between all signals, voltage and current
+		if (phase->voltage.y_cf[i] > phase->voltage.y_cf[bin_max]) {
+			bin_max = i;
+		}
+		// Phase
+		phase->voltage.y_cf[N_ARRAY_LENGTH + i] = atan2(phase->voltage.y_cf[(i * 2) + 1], phase->voltage.y_cf[i * 2]);
+
+		// Magnitude
+		phase->current.y_cf[i] = (phase->current.y_cf[i * 2] * phase->current.y_cf[i * 2]) + (phase->current.y_cf[(i * 2) + 1] * phase->current.y_cf[(i * 2) + 1]);
+		i_rms += phase->current.y_cf[i];
+		// Phase
+		phase->current.y_cf[N_ARRAY_LENGTH + i] = atan2(phase->current.y_cf[(i * 2) + 1], phase->current.y_cf[i * 2]);
+	}
+	v_rms = sqrt(2 * v_rms) / (N_ARRAY_LENGTH * 1e3); // mV -> V
+	i_rms = sqrt(2 * i_rms) / (N_ARRAY_LENGTH * 1e3); // mA -> A
+
+
+	// Round to remove noise
+//	v_rms = round(v_rms / EPSILON_V_RMS) * EPSILON_V_RMS;
+//	i_rms = round(i_rms * 100) / 100;
+
+
+	// Convert measured value to real world value or set as 0.0 if within range of noise
+#if 1
+	v_rms = v_rms < EPSILON_V_RMS ? 0.0 : v_rms * 1;//RMS_2_REAL_V;
+	i_rms = i_rms < EPSILON_I_RMS ? 0.0 : i_rms * 1;//RMS_2_REAL_I;
+#else
+	v_rms = v_rms < EPSILON_V_RMS ? 0.0 : (v_rms * RMS_2_REAL_V);
+	i_rms = i_rms < EPSILON_I_RMS ? 0.0 : (i_rms * RMS_2_REAL_I);
+#endif
+	printf("v_rms = %10.5f i_rms = %10.5f\n", v_rms, i_rms);
+
+	// Calculate phase difference between voltage and current
+	phase->power.apparent.phase = (v_rms < EPSILON || i_rms < EPSILON) ? 0.0 : phase->voltage.y_cf[N_ARRAY_LENGTH + i] - phase->current.y_cf[N_ARRAY_LENGTH + bin_max];
+	while (phase->power.apparent.phase < -M_PI) {
+		phase->power.apparent.phase += 2 * M_PI;
+	}
+	while (phase->power.apparent.phase > M_PI) {
+		phase->power.apparent.phase -= 2 * M_PI;
+	}
+	phase->power.power_factor = cos(phase->power.apparent.phase);
+	printf("phase_diff: %f\n", phase->power.apparent.phase);
+
+	// Calculate power
+//	phase->power.apparent.magnitude = v_rms * i_rms;
+//	phase->power.active = phase->power.apparent * cos(phase->power.apparent.phase);
+//	phase->power.reactive = phase->power.apparent * sin(phase->power.apparent.phase);
+
+#if 1
+	// Calculate frequency
+	if (bin_max > 0 && bin_max < (N_ARRAY_LENGTH / 2)) {
+		//// Reference: http://www.add.ece.ufl.edu/4511/references/ImprovingFFTResoltuion.pdf
+		// Parabolic Interpolation
+		signal_frequency_correction = (phase->voltage.y_cf[bin_max + 1] - phase->voltage.y_cf[bin_max - 1]) / \
+				(2 * ((2 * phase->voltage.y_cf[bin_max]) - phase->voltage.y_cf[bin_max + 1] - phase->voltage.y_cf[bin_max - 1]));
+	} else {
+		signal_frequency_correction = 0.0;
+	}
+//	printf("\ndelta_m: %f\n", signal_frequency_correction);
+	phase->power.frequency = (sampling_frequency / N_ARRAY_LENGTH) * (bin_max + signal_frequency_correction);
+	printf("Frequency: %5.3f\n", phase->power.frequency);
+#endif
+
+#if 0 // Print manitude and phase
+	printf("Magnitude; Phase\n");
+	for (i = 0; i < N_ARRAY_LENGTH / 2; i++) {
+		sprintf(buff, "%12.4f %12.4f %12.4f %12.4f\n", phase->voltage.y_cf[i], phase->voltage.y_cf[N_ARRAY_LENGTH + i], phase->current.y_cf[i], phase->current.y_cf[N_ARRAY_LENGTH + i]);
+		printf("%s", buff);
+	}
+	printf("\n");
+#endif
+}
+
+/// end functions process sampled data
 
 //// functions integration
 void integration(float array[][3], int array_length, float *voltage_out, float *current_out)
@@ -1207,14 +1157,11 @@ void app_main()
 
 	// Create Tasks
 	//// Create Tasks Web server
-	xTaskCreatePinnedToCore(&http_server, "http_server", 2048, NULL, 5, NULL, 1);
+	xTaskCreatePinnedToCore(&http_server, "http_server", 2048, NULL, 5, NULL, 0);
 
 	//// Create Tasks ADC
-    xTaskCreatePinnedToCore(read_phase, "read_phase", 2048, &phase_a, 5, &task_adc, 0);
-    //// Create Tasks FFT
-#if _MECOEN_FFT_
-    xTaskCreatePinnedToCore(fft_continuous, "fft_continuous", 2048, &phase_a, 5, &task_fft, 0);
-#endif
+    xTaskCreatePinnedToCore(read_phase, "read_phase", 2048, &phase_a, 5, NULL, 1);
+
 	//// Create Tasks I2C | RTC DS3231
 #if _MECOEN_DS3231_
     xTaskCreate(rtc_ds3231, "rtc_ds3231", configMINIMAL_STACK_SIZE * 3, NULL, 5, NULL);
@@ -1246,7 +1193,7 @@ void app_main()
 		integration(phase_copy, n_array_copy_length, &phase_a.voltage.rms, &phase_a.current.rms);
 		phase_a.voltage.rms = sqrt(phase_a.voltage.rms / n_array_copy_length);
 		phase_a.current.rms = sqrt(phase_a.current.rms / n_array_copy_length);
-		phase_a.power.apparent = phase_a.voltage.rms * phase_a.current.rms;
+		phase_a.power.apparent.magnitude = phase_a.voltage.rms * phase_a.current.rms;
 		// end RMS
 
 #if 0
