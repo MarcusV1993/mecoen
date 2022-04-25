@@ -70,8 +70,8 @@
 ////// end definitions ADC sampling
 
 ////// definitions ADC conversion
-#define RMS_2_REAL_V 402.2
-#define RMS_2_REAL_I 1.0
+#define RMS_2_REAL_V 393.227
+#define RMS_2_REAL_I 5.901
 ////// end definitions ADC conversion
 //// end definitions ADC
 

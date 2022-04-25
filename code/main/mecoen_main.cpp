@@ -975,17 +975,17 @@ process_sampled_data(Circuit_phase *phase, float sampling_period_us)
 
 
 	// Convert measured value to real world value or set as 0.0 if within range of noise
-#if 1
-	v_rms = v_rms < EPSILON_V_RMS ? 0.0 : v_rms * 1;//RMS_2_REAL_V;
-	i_rms = i_rms < EPSILON_I_RMS ? 0.0 : i_rms * 1;//RMS_2_REAL_I;
+#if 0
+	v_rms = v_rms < EPSILON_V_RMS ? 0.0 : v_rms * 1;
+	i_rms = i_rms < EPSILON_I_RMS ? 0.0 : i_rms * 1;
 #else
 	v_rms = v_rms < EPSILON_V_RMS ? 0.0 : (v_rms * RMS_2_REAL_V);
 	i_rms = i_rms < EPSILON_I_RMS ? 0.0 : (i_rms * RMS_2_REAL_I);
 #endif
-	printf("v_rms = %10.5f i_rms = %10.5f\n", v_rms, i_rms);
+	printf("v_rms = %10.5f i_rms = %10.5f S = %10.5f\n", v_rms, i_rms, v_rms * i_rms);
 
 	// Calculate phase difference between voltage and current
-	phase->power.apparent.phase = (v_rms < EPSILON || i_rms < EPSILON) ? 0.0 : phase->voltage.y_cf[N_ARRAY_LENGTH + i] - phase->current.y_cf[N_ARRAY_LENGTH + bin_max];
+	phase->power.apparent.phase = (v_rms < EPSILON || i_rms < EPSILON) ? 0.0 : phase->voltage.y_cf[N_ARRAY_LENGTH + bin_max] - phase->current.y_cf[N_ARRAY_LENGTH + bin_max];
 	while (phase->power.apparent.phase < -M_PI) {
 		phase->power.apparent.phase += 2 * M_PI;
 	}
@@ -993,7 +993,7 @@ process_sampled_data(Circuit_phase *phase, float sampling_period_us)
 		phase->power.apparent.phase -= 2 * M_PI;
 	}
 	phase->power.power_factor = cos(phase->power.apparent.phase);
-	printf("phase_diff: %f\n", phase->power.apparent.phase);
+//	printf("phase_diff: %f\n", phase->power.apparent.phase * 180 / M_PI);
 
 	// Calculate power
 //	phase->power.apparent.magnitude = v_rms * i_rms;
@@ -1012,7 +1012,7 @@ process_sampled_data(Circuit_phase *phase, float sampling_period_us)
 	}
 //	printf("\ndelta_m: %f\n", signal_frequency_correction);
 	phase->power.frequency = (sampling_frequency / N_ARRAY_LENGTH) * (bin_max + signal_frequency_correction);
-	printf("Frequency: %5.3f\n", phase->power.frequency);
+//	printf("Frequency: %5.3f\n", phase->power.frequency);
 #endif
 
 #if 0 // Print manitude and phase
