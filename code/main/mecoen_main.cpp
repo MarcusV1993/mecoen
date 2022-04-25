@@ -203,6 +203,8 @@ constexpr static char http_html_hdr[] = "HTTP/1.1 200 OK\r\nContent-type: text/h
 
 // global variables
 static Circuit_phase phase_a;
+RTC_DATA_ATTR static float energy_active = 0;
+RTC_DATA_ATTR static float energy_reactive = 0;
 constexpr int n_array_copy_length = N_ARRAY_LENGTH / REASON;
 static float phase_copy[n_array_copy_length][3];
 
@@ -266,6 +268,9 @@ static char http_index_html_server[] = "\
 <center><h1>Projeto de Graduacao em Engenharia Eletrica com Enfase em Eletronica e Sistemas</h1></center>\
 <center><h1>Medidor de Consumo de Energia Eletrica Domestico de Tempo Real com Interface Via Aplicativo Web</h1></center>\
 <center>Count #                                                                                                 </center>\
+<center>Time #                                                                                                 </center>\
+<center>#                                                                                                       </center>\
+<center>#                                                                                                       </center>\
 <center>#                                                                                                       </center>\
 <center>#                                                                                                       </center>\
 </body>\
@@ -773,17 +778,42 @@ http_server_netconn_serve(struct netconn *conn)
     {
         char *output = strstr(http_index_html_server, "#");
         static int count = 0;
+        struct tm timeinfo;
+		timeval now;
         sprintf(message, "%d", count++);
 		strcpy(output + 1, message);
 		output[strlen(message) + 1] = ';';
 
+		// Time
 		output = strstr(output + 1, "#");
-        sprintf(message, "Vrms = %07.2f", phase_a.voltage.rms_previous);
+
+		gettimeofday(&now, NULL);
+		localtime_r(&now.tv_sec, &timeinfo);
+		strftime(message, sizeof(message), "%c", &timeinfo);
+		strcpy(output + 1, message);
+		output[strlen(message) + 1] = ';';
+
+		// Voltage
+		output = strstr(output + 1, "#");
+        sprintf(message, "Vrms = %07.2f V", phase_a.voltage.rms_previous);
         strcpy(output + 1, message);
         output[strlen(message) + 1] = ';';
 
+        // Current
         output = strstr(output + 1, "#");
-        sprintf(message, "Irms = %07.2f", phase_a.current.rms_previous);
+        sprintf(message, "Irms = %07.2f A", phase_a.current.rms_previous);
+		strcpy(output + 1, message);
+		output[strlen(message) + 1] = ';';
+
+		// Active power
+		output = strstr(output + 1, "#");
+		sprintf(message, "P = %07.2f W", phase_a.power.active);
+		strcpy(output + 1, message);
+		output[strlen(message) + 1] = ';';
+
+		// Reactive power
+		output = strstr(output + 1, "#");
+		sprintf(message, "Q = %07.2f VAr", phase_a.power.reactive);
 		strcpy(output + 1, message);
 		output[strlen(message) + 1] = '.';
 
@@ -985,7 +1015,7 @@ process_sampled_data(Circuit_phase *phase, float sampling_period_us)
 	printf("v_rms = %10.5f i_rms = %10.5f S = %10.5f\n", v_rms, i_rms, v_rms * i_rms);
 
 	// Calculate phase difference between voltage and current
-	phase->power.apparent.phase = (v_rms < EPSILON || i_rms < EPSILON) ? 0.0 : phase->voltage.y_cf[N_ARRAY_LENGTH + bin_max] - phase->current.y_cf[N_ARRAY_LENGTH + bin_max];
+	phase->power.apparent.phase = (v_rms < EPSILON_V_RMS || i_rms < EPSILON_I_RMS) ? 0.0 : phase->voltage.y_cf[N_ARRAY_LENGTH + bin_max] - phase->current.y_cf[N_ARRAY_LENGTH + bin_max];
 	while (phase->power.apparent.phase < -M_PI) {
 		phase->power.apparent.phase += 2 * M_PI;
 	}
@@ -996,9 +1026,12 @@ process_sampled_data(Circuit_phase *phase, float sampling_period_us)
 //	printf("phase_diff: %f\n", phase->power.apparent.phase * 180 / M_PI);
 
 	// Calculate power
-//	phase->power.apparent.magnitude = v_rms * i_rms;
-//	phase->power.active = phase->power.apparent * cos(phase->power.apparent.phase);
-//	phase->power.reactive = phase->power.apparent * sin(phase->power.apparent.phase);
+	phase->power.apparent.magnitude = v_rms * i_rms;
+	phase->power.active = phase->power.apparent.magnitude * cos(phase->power.apparent.phase);
+	phase->power.reactive = phase->power.apparent.magnitude * sin(phase->power.apparent.phase);
+	phase->voltage.rms_previous = v_rms;
+	phase->current.rms_previous = i_rms;
+
 
 #if 1
 	// Calculate frequency
@@ -1189,6 +1222,7 @@ void app_main()
 		xSemaphoreGive(semaphore_adc);
 		// end data copy
 
+#if 0
 		// RMS
 		integration(phase_copy, n_array_copy_length, &phase_a.voltage.rms, &phase_a.current.rms);
 		phase_a.voltage.rms = sqrt(phase_a.voltage.rms / n_array_copy_length);
@@ -1196,7 +1230,6 @@ void app_main()
 		phase_a.power.apparent.magnitude = phase_a.voltage.rms * phase_a.current.rms;
 		// end RMS
 
-#if 0
 		for (int i = 0; i < n_array_copy_length; i++)
 		{
 			printf("%08.4f %08.4f %08.4f\n", phase_copy[i][0], phase_copy[i][1], phase_copy[i][2]);
@@ -1206,11 +1239,10 @@ void app_main()
 		printf("\nVrms = %06.2f; Irms = %06.2f; P = %06.2f\n", phase_a.voltage.rms, phase_a.current.rms, phase_a.power.apparent);
 		printf("\n\n");
 		fflush(stdout);
-#endif
-
 
 		phase_a.voltage.rms = phase_a.voltage.rms_previous;
 		phase_a.current.rms = phase_a.current.rms_previous;
+#endif
     }
 
     // Delete Semaphores

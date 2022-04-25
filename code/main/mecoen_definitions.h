@@ -66,7 +66,7 @@
 
 ////// definitions ADC sampling
 #define SAMPLING_FREQUENCY 2000
-#define NO_OF_SAMPLES   4          //Multisampling | Value must be greater than 1
+#define NO_OF_SAMPLES   4          //Multisampling
 ////// end definitions ADC sampling
 
 ////// definitions ADC conversion
