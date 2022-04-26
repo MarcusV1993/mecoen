@@ -188,6 +188,8 @@ static const char *TAG_WIFI = "wifi ap + station";
 
 
 //// const storage
+static constexpr int PERIOD_AGGREGATE[5] = {1, 3, 5, 10, 15};
+static constexpr int Period_aggregate = 0; // TODO: make it variable so user can choose from list
 static constexpr int storage_period_s = STORAGE_PERIOD * 60;
 #if _MECOEN_STORAGE_
 static const char *base_path = "/mecoen"; // Mount path for the partition
@@ -508,6 +510,16 @@ read_phase(void *arg)
 	float sample_period = 0.0;
 	TickType_t xLastWakeTime = xTaskGetTickCount();
 
+	struct tm timeinfo_previous, timeinfo_current;
+	timeval now;
+
+	gettimeofday(&now, NULL);
+	localtime_r(&now.tv_sec, &timeinfo_previous);
+
+	energy_active = 0.0;
+	energy_reactive = 0.0;
+	phase->power.active_max = 0.0;
+
 	ulTaskNotifyTakeIndexed(INDEX_TO_WATCH, pdTRUE, portMAX_DELAY);
 
 
@@ -564,6 +576,29 @@ read_phase(void *arg)
 		xSemaphoreTake(semaphore_adc, 10 * ticks_1s);
 
 		process_sampled_data(phase, sample_period / (N_ARRAY_LENGTH - 1));
+		energy_active   += phase->power.active;
+		energy_reactive += phase->power.reactive;
+
+
+		gettimeofday(&now, NULL);
+		localtime_r(&now.tv_sec, &timeinfo_current);
+
+		if (((timeinfo_current.tm_min % PERIOD_AGGREGATE[Period_aggregate]) == 0) && (timeinfo_current.tm_min != timeinfo_previous.tm_min)) {
+			energy_active   /= 3600.0; // W   -> Wh
+			energy_reactive /= 3600.0; // VAr -> VArh
+			printf("\nActive Energy = %7.3f Reactive Energy = %7.3f\n", energy_active, energy_reactive);
+			// TODO: Create task to store data in flash storage
+			// Saving to flash is a slow process, so it needs to be called and run in parallel
+			if (timeinfo_current.tm_hour == timeinfo_previous.tm_hour) {
+				printf("\nAggregate period time concluded\n");
+			} else {
+				printf("\nAggregate period time concluded and hour change\n");
+			}
+			energy_active = 0.0;
+			energy_reactive = 0.0;
+			phase->power.active_max = 0.0;
+		}
+		timeinfo_previous = timeinfo_current;
 	}
 }
 //// end functions ADC
@@ -813,7 +848,12 @@ http_server_netconn_serve(struct netconn *conn)
 
 		// Reactive power
 		output = strstr(output + 1, "#");
-		sprintf(message, "Q = %07.2f VAr", phase_a.power.reactive);
+		if (phase_a.power.reactive > EPSILON) {
+			char power_reactive_type = phase_a.power.apparent.phase > 0 ? 'I' : 'C';
+			sprintf(message, "Q = %07.2f VAr %c", phase_a.power.reactive, power_reactive_type);
+		} else {
+			sprintf(message, "Q = %07.2f VAr", phase_a.power.reactive);
+		}
 		strcpy(output + 1, message);
 		output[strlen(message) + 1] = '.';
 
@@ -1028,6 +1068,9 @@ process_sampled_data(Circuit_phase *phase, float sampling_period_us)
 	// Calculate power
 	phase->power.apparent.magnitude = v_rms * i_rms;
 	phase->power.active = phase->power.apparent.magnitude * cos(phase->power.apparent.phase);
+	if (phase->power.active > phase->power.active_max) {
+		phase->power.active_max = phase->power.active;
+	}
 	phase->power.reactive = phase->power.apparent.magnitude * sin(phase->power.apparent.phase);
 	phase->voltage.rms_previous = v_rms;
 	phase->current.rms_previous = i_rms;

@@ -9,9 +9,7 @@
 #define ENERGY_METER_PROJECT_DEFINITIONS_H_
 
 #include <stdint.h>
-
-//#include "freertos/FreeRTOS.h"
-//#include "freertos/queue.h"
+#include <time.h>
 #include "driver/adc.h"
 #include "driver/gpio.h"
 
@@ -165,7 +163,7 @@ typedef struct
 	struct {
 		float magnitude, phase;
 	} apparent;
-	float active, reactive, power_factor, frequency;
+	float active, reactive, power_factor, frequency, active_max;
 } Power;
 
 
@@ -174,6 +172,7 @@ typedef struct Circuit_phase
 {
 	Signal voltage, current;
 	Power power;
+	struct tm time;
 } Circuit_phase;
 //// end structure for voltage and current readings in a phase of the circuit, and phase power calculation results
 // end structures
